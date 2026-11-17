@@ -1,0 +1,13 @@
+@import "tailwindcss";
+@source "../index.html";
+@source "../src/**/*.{ts,tsx,js,jsx}";
+@source "../assets/js/**/*.js";
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
+
+/* Rental Gate Brand Utility Helpers */
+@layer base {
+  html,
+  body {
+    font-family: 'IBM Plex Sans Arabic', 'Plus Jakarta Sans', 'Segoe UI', Tahoma, Arial, sans-serif;
+  }
+}
