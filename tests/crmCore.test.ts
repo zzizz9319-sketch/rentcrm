@@ -323,3 +323,66 @@ test('API cache policy, stable cache key generation, and mutation invalidation s
   assert.equal(saveTokenScopes.includes('sync'), true);
 });
 
+test('supports real Rental Gate OpenAPI ReservationSummaryForFilterDto and ReservationExtendFilterResponseDTO shapes', () => {
+  assert.equal(core.translateOriginalStatus('IN_PROGRESS'), 'قيد التنفيذ');
+  assert.equal(core.translateOriginalStatus('STARTED'), 'بدأ التنفيذ');
+  assert.equal(core.translateDeliveryType('MY_LOCATION'), 'توصيل لموقع العميل');
+
+  assert.equal(core.isExtensionAcceptedAndPaid({
+    extendId: 255,
+    reservationStatus: 'PAID',
+    paymentDate: '2026-11-15T10:00:00Z',
+    rejectedByUserId: null
+  }), true);
+  assert.equal(core.isExtensionAcceptedAndPaid({
+    extendId: 252,
+    reservationStatus: 'ADMIN_APPROVED',
+    paymentDate: null,
+    rejectedByUserId: null
+  }), true);
+  assert.equal(core.isExtensionAcceptedAndPaid({
+    extendId: 254,
+    reservationStatus: 'CREATED',
+    paymentDate: null
+  }), false);
+  assert.equal(core.isExtensionAcceptedAndPaid({
+    extendId: 249,
+    reservationStatus: 'DECLINED',
+    rejectedByUserId: 65,
+    rejectionReason: 'timeout'
+  }), false);
+
+  const synced = core.mergeSyncedReservation(
+    null,
+    {
+      reservationId: 832,
+      clientName: 'سعود الشمري',
+      clientMobile: '0550001122',
+      companyArName: 'يلو لتأجير السيارات',
+      receiveBranchArName: 'مطار الملك خالد - الرياض',
+      carNameAr: 'تويوتا كامري',
+      startDate: '2026-11-14T10:00:00Z',
+      endDate: '2026-11-16T10:00:00Z',
+      reservationDays: 2,
+      reservationStatus: 'STARTED',
+      receiveType: 'AIRPORT',
+      deliverType: 'BRANCH',
+      total: 29.13,
+      extended: true,
+      extensionsTotal: 259.89
+    },
+    [{ total: 173.26 }, { total: 86.63 }],
+    { id: 'EMP_1', name: 'النظام' }
+  );
+
+  assert.equal(synced.reservationNumber, '832');
+  assert.equal(synced.customerName, 'سعود الشمري');
+  assert.equal(synced.companyName, 'يلو لتأجير السيارات');
+  assert.equal(synced.originalStatusAr, 'بدأ التنفيذ');
+  assert.equal(synced.pickupTypeAr, 'توصيل للمطار');
+  assert.equal(synced.baseAmount, 29.13);
+  assert.equal(synced.extensionsAmount, 259.89);
+  assert.equal(synced.totalAmount, 289.02);
+  assert.equal(synced.internalStatus, 'تم التمديد');
+});
+

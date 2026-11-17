@@ -58,20 +58,29 @@ var RG_STATUS_MAP = {
   booked: 'تم الحجز',
   reserved: 'تم الحجز',
   active: 'نشط',
+  started: 'بدأ التنفيذ',
+  in_progress: 'قيد التنفيذ',
+  hold: 'معلق',
   delivered: 'تم التسليم',
   picked_up: 'تم الاستلام',
   received: 'تم الاستلام',
   extended: 'تم التمديد',
+  automatically_extended: 'تم التمديد تلقائيًا',
   completed: 'مكتمل',
   finished: 'مكتمل',
+  finished_by_driver: 'مكتمل عبر السائق',
   cancelled: 'ملغي',
   canceled: 'ملغي',
+  declined: 'مرفوض',
   rejected: 'مرفوض',
   expired: 'منتهي',
   no_show: 'لم يحضر',
   draft: 'مسودة',
   unpaid: 'غير مدفوع',
   paid: 'مدفوع',
+  wallet_paid: 'مدفوع بالمحفظة',
+  admin_approved: 'معتمد إداريًا',
+  location_changed: 'تم تغيير الموقع',
   accepted: 'مقبول',
   approved: 'مقبول'
 };
@@ -83,6 +92,8 @@ var RG_DELIVERY_MAP = {
   delivery: 'توصيل للموقع',
   home: 'توصيل للمنزل',
   airport: 'توصيل للمطار',
+  train_station: 'محطة القطار',
+  my_location: 'توصيل لموقع العميل',
   hotel: 'توصيل للفندق',
   return_branch: 'تسليم في الفرع',
   return_delivery: 'استلام من موقع العميل'
@@ -156,11 +167,46 @@ function translateDeliveryType(type) {
 
 function isExtensionAcceptedAndPaid(ext) {
   if (!ext || typeof ext !== 'object') return false;
-  var st = normalizeStr(ext.status || ext.status_code || ext.state).toLowerCase();
-  var pay = normalizeStr(ext.payment_status || ext.paymentStatus || ext.is_paid).toLowerCase();
-  var accepted = st === 'accepted' || st === 'approved' || st === 'confirmed' || st === 'active' || st === 'completed' || st === 'مقبول';
-  var paid = pay === 'paid' || pay === 'completed' || pay === 'true' || pay === '1' || pay === 'مدفوع' || ext.paid === true;
-  return accepted && paid;
+  if (ext.rejectedByUserId || normalizeStr(ext.rejectionReason)) return false;
+
+  var st = normalizeStr(ext.reservationStatus || ext.status || ext.status_code || ext.state).toLowerCase();
+  if (st === 'cancelled' || st === 'canceled' || st === 'declined' || st === 'rejected' || st === 'hold' || st === 'created' || st === 'draft' || st === 'unpaid' || st === 'expired' || st === 'pending') {
+    return false;
+  }
+
+  var explicitPay = normalizeStr(ext.payment_status || ext.paymentStatus || ext.is_paid).toLowerCase();
+  var accepted = (
+    st === 'accepted' || st === 'approved' || st === 'confirmed' || st === 'active' ||
+    st === 'completed' || st === 'paid' || st === 'wallet_paid' || st === 'admin_approved' ||
+    st === 'extended' || st === 'automatically_extended' || st === 'started' ||
+    st === 'in_progress' || st === 'finished' || st === 'finished_by_driver' || st === 'مقبول'
+  );
+  if (!accepted) return false;
+
+  if (explicitPay || ext.paid !== undefined) {
+    return explicitPay === 'paid' || explicitPay === 'completed' || explicitPay === 'true' || explicitPay === '1' || explicitPay === 'مدفوع' || ext.paid === true;
+  }
+
+  // Real Rental Gate ReservationExtendFilterResponseDTO uses reservationStatus + paymentDate/paymentResult
+  var payResult = normalizeStr(ext.paymentResult).toLowerCase();
+  if (payResult && (payResult.indexOf('fail') !== -1 || payResult.indexOf('reject') !== -1 || payResult.indexOf('declin') !== -1 || payResult === 'unpaid')) {
+    return false;
+  }
+  return Boolean(
+    ext.paymentDate ||
+    st === 'paid' ||
+    st === 'wallet_paid' ||
+    st === 'admin_approved' ||
+    st === 'extended' ||
+    st === 'automatically_extended' ||
+    st === 'finished' ||
+    st === 'finished_by_driver' ||
+    payResult === 'paid' ||
+    payResult === 'captured' ||
+    payResult === 'success' ||
+    payResult === 'approved' ||
+    payResult === 'completed'
+  );
 }
 
 function computeTotalAmount(baseAmount, extensionsList) {

@@ -58,20 +58,29 @@
     booked: 'تم الحجز',
     reserved: 'تم الحجز',
     active: 'نشط',
+    started: 'بدأ التنفيذ',
+    in_progress: 'قيد التنفيذ',
+    hold: 'معلق',
     delivered: 'تم التسليم',
     picked_up: 'تم الاستلام',
     received: 'تم الاستلام',
     extended: 'تم التمديد',
+    automatically_extended: 'تم التمديد تلقائيًا',
     completed: 'مكتمل',
     finished: 'مكتمل',
+    finished_by_driver: 'مكتمل عبر السائق',
     cancelled: 'ملغي',
     canceled: 'ملغي',
+    declined: 'مرفوض',
     rejected: 'مرفوض',
     expired: 'منتهي',
     no_show: 'لم يحضر',
     draft: 'مسودة',
     unpaid: 'غير مدفوع',
     paid: 'مدفوع',
+    wallet_paid: 'مدفوع بالمحفظة',
+    admin_approved: 'معتمد إداريًا',
+    location_changed: 'تم تغيير الموقع',
     accepted: 'مقبول',
     approved: 'مقبول'
   };
@@ -83,6 +92,8 @@
     delivery: 'توصيل للموقع',
     home: 'توصيل للمنزل',
     airport: 'توصيل للمطار',
+    train_station: 'محطة القطار',
+    my_location: 'توصيل لموقع العميل',
     hotel: 'توصيل للفندق',
     return_branch: 'تسليم في الفرع',
     return_delivery: 'استلام من موقع العميل'
@@ -110,58 +121,87 @@
 
   function isExtensionAcceptedAndPaid(ext) {
     if (!ext || typeof ext !== 'object') return false;
-    var st = normalizeStr(ext.status || ext.status_code || ext.state).toLowerCase();
-    var pay = normalizeStr(ext.payment_status || ext.paymentStatus || ext.is_paid).toLowerCase();
-    var accepted = ['accepted', 'approved', 'confirmed', 'active', 'completed', 'مقبول'].indexOf(st) !== -1;
-    var paid = ['paid', 'completed', 'true', '1', 'مدفوع'].indexOf(pay) !== -1 || ext.paid === true;
-    return accepted && paid;
+    if (ext.rejectedByUserId || normalizeStr(ext.rejectionReason)) return false;
+
+    var st = normalizeStr(ext.reservationStatus || ext.status || ext.status_code || ext.state).toLowerCase();
+    if (['cancelled', 'canceled', 'declined', 'rejected', 'hold', 'created', 'draft', 'unpaid', 'expired', 'pending'].indexOf(st) !== -1) {
+      return false;
+    }
+
+    var acceptedStatuses = [
+      'accepted', 'approved', 'confirmed', 'active', 'completed', 'paid', 'wallet_paid',
+      'admin_approved', 'extended', 'automatically_extended', 'started', 'in_progress',
+      'finished', 'finished_by_driver', 'مقبول'
+    ];
+    if (acceptedStatuses.indexOf(st) === -1) return false;
+
+    var explicitPay = normalizeStr(ext.payment_status || ext.paymentStatus || ext.is_paid).toLowerCase();
+    if (explicitPay || ext.paid !== undefined) {
+      return ['paid', 'completed', 'true', '1', 'مدفوع'].indexOf(explicitPay) !== -1 || ext.paid === true;
+    }
+
+    var payResult = normalizeStr(ext.paymentResult).toLowerCase();
+    if (payResult && (payResult.indexOf('fail') !== -1 || payResult.indexOf('reject') !== -1 || payResult.indexOf('declin') !== -1 || payResult === 'unpaid')) {
+      return false;
+    }
+    return Boolean(
+      ext.paymentDate ||
+      ['paid', 'wallet_paid', 'admin_approved', 'extended', 'automatically_extended', 'finished', 'finished_by_driver'].indexOf(st) !== -1 ||
+      ['paid', 'captured', 'success', 'approved', 'completed'].indexOf(payResult) !== -1
+    );
   }
 
   function computeTotalAmount(baseAmount, extensions) {
     var total = toNum(baseAmount, 0);
     if (Array.isArray(extensions)) {
       for (var i = 0; i < extensions.length; i++) {
-        total += toNum(extensions[i].amount, 0);
+        total += toNum(extensions[i].amount !== undefined ? extensions[i].amount : extensions[i].total, 0);
       }
     }
     return Math.round(total * 100) / 100;
   }
 
   function mergeSyncedReservation(existing, apiItem, acceptedExtensions, actor) {
-    var resNumber = normalizeStr(apiItem.reservation_number || apiItem.code || apiItem.reference || apiItem.id);
-    var statusCode = normalizeStr(apiItem.status || apiItem.status_code).toLowerCase();
+    var resApiId = normalizeStr(apiItem.reservationId || apiItem.id);
+    var resNumber = normalizeStr(apiItem.reservationNumber || apiItem.reservation_number || apiItem.code || apiItem.reference || resApiId);
+    var statusCode = normalizeStr(apiItem.reservationStatus || apiItem.status || apiItem.status_code).toLowerCase();
     var exts = Array.isArray(acceptedExtensions) ? acceptedExtensions : [];
     var extAmountSum = 0;
     for (var i = 0; i < exts.length; i++) {
-      extAmountSum += toNum(exts[i].amount, 0);
+      extAmountSum += toNum(exts[i].amount !== undefined ? exts[i].amount : exts[i].total, 0);
+    }
+    if (exts.length === 0 && apiItem.extended && toNum(apiItem.extensionsTotal, 0) > 0) {
+      extAmountSum = toNum(apiItem.extensionsTotal, 0);
     }
 
-    var baseAmount = toNum(apiItem.total_price || apiItem.total || apiItem.amount || apiItem.base_amount, 0);
-    var totalAmount = computeTotalAmount(baseAmount, exts);
+    var baseAmount = toNum(apiItem.total !== undefined ? apiItem.total : (apiItem.total_price || apiItem.amount || apiItem.base_amount), 0);
+    var totalAmount = exts.length > 0
+      ? computeTotalAmount(baseAmount, exts)
+      : Math.round((baseAmount + extAmountSum) * 100) / 100;
     var now = new Date().toISOString();
 
     return {
       id: existing ? existing.id : ('RES_' + resNumber),
       reservationNumber: resNumber,
-      customerName: normalizeStr(apiItem.customer_name || (apiItem.customer && apiItem.customer.name) || 'عميل'),
-      customerPhone: normalizeStr(apiItem.customer_phone || (apiItem.customer && apiItem.customer.phone) || ''),
-      companyName: normalizeStr(apiItem.company_name || (apiItem.company && apiItem.company.name) || ''),
-      branchName: normalizeStr(apiItem.branch_name || (apiItem.branch && apiItem.branch.name) || ''),
-      carName: normalizeStr(apiItem.car_name || (apiItem.car && apiItem.car.name) || ''),
-      plateNumber: normalizeStr(apiItem.plate_number || (apiItem.car && apiItem.car.plate_number) || ''),
-      startDate: normalizeStr(apiItem.start_date || apiItem.pickup_date).substring(0, 10),
-      endDate: normalizeStr(apiItem.end_date || apiItem.return_date).substring(0, 10),
-      daysCount: toNum(apiItem.days_count || apiItem.days, 1),
+      customerName: normalizeStr(apiItem.clientName || apiItem.customer_name || (apiItem.customer && apiItem.customer.name) || 'عميل'),
+      customerPhone: normalizeStr(apiItem.clientMobile || apiItem.customer_phone || (apiItem.customer && apiItem.customer.phone) || ''),
+      companyName: normalizeStr(apiItem.companyArName || apiItem.companyEnName || apiItem.company_name || (apiItem.company && apiItem.company.name) || ''),
+      branchName: normalizeStr(apiItem.receiveBranchArName || apiItem.receiveBranchEnName || apiItem.branch_name || (apiItem.branch && apiItem.branch.name) || ''),
+      carName: normalizeStr(apiItem.carNameAr || apiItem.carNameEn || apiItem.car_name || (apiItem.car && apiItem.car.name) || ''),
+      plateNumber: normalizeStr(apiItem.plate_number || apiItem.plateNumber || (apiItem.car && apiItem.car.plate_number) || ''),
+      startDate: normalizeStr(apiItem.startDate || apiItem.start_date || apiItem.pickup_date).substring(0, 10),
+      endDate: normalizeStr(apiItem.actualEndDate || apiItem.endDate || apiItem.end_date || apiItem.return_date).substring(0, 10),
+      daysCount: toNum(apiItem.reservationDays || apiItem.days_count || apiItem.days, 1),
       originalStatusCode: statusCode,
       originalStatusAr: translateOriginalStatus(statusCode),
-      pickupTypeAr: translateDeliveryType(apiItem.pickup_type || apiItem.delivery_type),
-      returnTypeAr: translateDeliveryType(apiItem.return_type || apiItem.dropoff_type),
+      pickupTypeAr: translateDeliveryType(apiItem.receiveType || apiItem.pickup_type || apiItem.delivery_type),
+      returnTypeAr: translateDeliveryType(apiItem.deliverType || apiItem.return_type || apiItem.dropoff_type),
       baseAmount: baseAmount,
       extensionsAmount: Math.round(extAmountSum * 100) / 100,
       totalAmount: totalAmount,
-      hasExtensions: exts.length > 0,
+      hasExtensions: exts.length > 0 || Boolean(apiItem.extended),
       // Strictly preserve internal workflow state & assignments across syncs
-      internalStatus: existing ? existing.internalStatus : (exts.length > 0 ? 'تم التمديد' : 'تم الإنشاء'),
+      internalStatus: existing ? existing.internalStatus : ((exts.length > 0 || apiItem.extended) ? 'تم التمديد' : 'تم الإنشاء'),
       priority: existing ? existing.priority : 'عادي',
       assignedEmployeeIds: existing ? existing.assignedEmployeeIds : [],
       assignedEmployeeNames: existing ? existing.assignedEmployeeNames : [],

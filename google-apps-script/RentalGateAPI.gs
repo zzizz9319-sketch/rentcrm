@@ -11,23 +11,22 @@ function getRgToken() {
   return normalizeStr(props.getProperty('RG_TOKEN') || props.getProperty('RENTAL_TOKEN'));
 }
 
-function callRentalGateEndpoint(url, token, page, perPage) {
-  var payload = {
-    page: page || 1,
-    per_page: perPage || 100
-  };
+function callRentalGateEndpoint(url, token, pageZeroBased, size) {
+  var pageNum = pageZeroBased !== undefined && pageZeroBased !== null ? Math.max(0, Number(pageZeroBased) || 0) : 0;
+  var pageSize = size ? Math.max(1, Number(size) || 100) : 100;
+  var sep = url.indexOf('?') === -1 ? '?' : '&';
+  var fullUrl = url + sep + 'page=' + encodeURIComponent(pageNum) + '&size=' + encodeURIComponent(pageSize);
+
   var options = {
-    method: 'post',
-    contentType: 'application/json',
+    method: 'get',
     headers: {
       Authorization: 'Bearer ' + token,
       Accept: 'application/json'
     },
-    payload: JSON.stringify(payload),
     muteHttpExceptions: true
   };
 
-  var res = UrlFetchApp.fetch(url, options);
+  var res = UrlFetchApp.fetch(fullUrl, options);
   var code = res.getResponseCode();
   var text = res.getContentText();
   if (code < 200 || code >= 300) {
@@ -38,37 +37,50 @@ function callRentalGateEndpoint(url, token, page, perPage) {
 
 function fetchAllRentalGatePages(url, token) {
   var allItems = [];
-  var page = 1;
+  var page = 0;
   var pagesFetched = 0;
   var maxPages = 100;
+  var pageSize = 100;
 
-  while (page <= maxPages) {
-    var body = callRentalGateEndpoint(url, token, page, 100);
+  while (page < maxPages) {
+    var body = callRentalGateEndpoint(url, token, page, pageSize);
     pagesFetched++;
     var rows = [];
-    var lastPage = 1;
+    var totalPages = 1;
+    var isLast = false;
 
     if (Array.isArray(body)) {
       rows = body;
-      lastPage = 1;
+      isLast = true;
+    } else if (body && Array.isArray(body.content)) {
+      rows = body.content;
+      totalPages = toNumber(body.totalPages, 1);
+      isLast = body.last === true || (page + 1) >= totalPages;
     } else if (body && body.data) {
       if (Array.isArray(body.data)) {
         rows = body.data;
-        lastPage = toNumber((body.meta && body.meta.last_page) || (body.pagination && body.pagination.last_page) || body.last_page, 1);
+        totalPages = toNumber((body.meta && body.meta.last_page) || (body.pagination && body.pagination.last_page) || body.last_page, 1);
+        isLast = (page + 1) >= totalPages;
+      } else if (Array.isArray(body.data.content)) {
+        rows = body.data.content;
+        totalPages = toNumber(body.data.totalPages, 1);
+        isLast = body.data.last === true || (page + 1) >= totalPages;
       } else if (Array.isArray(body.data.data)) {
         rows = body.data.data;
-        lastPage = toNumber(body.data.last_page || (body.data.meta && body.data.meta.last_page) || (body.data.pagination && body.data.pagination.last_page), 1);
+        totalPages = toNumber(body.data.last_page || (body.data.meta && body.data.meta.last_page) || (body.data.pagination && body.data.pagination.last_page), 1);
+        isLast = (page + 1) >= totalPages;
       }
     } else if (body && Array.isArray(body.items)) {
       rows = body.items;
-      lastPage = toNumber((body.meta && body.meta.last_page) || (body.pagination && body.pagination.last_page) || body.last_page, 1);
+      totalPages = toNumber((body.meta && body.meta.last_page) || (body.pagination && body.pagination.last_page) || body.last_page, 1);
+      isLast = (page + 1) >= totalPages;
     }
 
     for (var i = 0; i < rows.length; i++) {
       allItems.push(rows[i]);
     }
 
-    if (page >= lastPage || rows.length === 0) {
+    if (isLast || rows.length === 0) {
       break;
     }
     page++;
@@ -132,7 +144,7 @@ function testRentalGateConnection(session) {
     };
   }
   try {
-    callRentalGateEndpoint(RG_RESERVATIONS_API, token, 1, 1);
+    callRentalGateEndpoint(RG_RESERVATIONS_API, token, 0, 1);
     return {
       connected: true,
       hasToken: true,
@@ -216,38 +228,48 @@ function runRentalGateSyncInternal(actor) {
       var extRecordsToUpsert = [];
       var extSeenMap = {};
       var extByResNumber = {};
+      var extByResId = {};
 
       for (var x = 0; x < extFetch.items.length; x++) {
         var ext = extFetch.items[x];
         if (!isExtensionAcceptedAndPaid(ext)) continue;
 
-        var extNum = normalizeStr(ext.id || ext.extension_number || ext.code);
-        var resNumForExt = normalizeStr(ext.reservation_number || (ext.reservation && ext.reservation.reservation_number) || ext.reservation_id);
-        if (!resNumForExt) continue;
-        if (!extNum) extNum = resNumForExt + '_EXT_' + (x + 1);
+        var extNum = normalizeStr(ext.extendId || ext.id || ext.extension_number || ext.code);
+        var resIdForExt = normalizeStr(ext.reservationId || ext.reservation_id || (ext.reservation && ext.reservation.id));
+        var resNumForExt = normalizeStr(ext.reservationNumber || ext.reservation_number || (ext.reservation && ext.reservation.reservation_number) || resIdForExt);
+        if (!resNumForExt && !resIdForExt) continue;
+        if (!extNum) extNum = (resNumForExt || resIdForExt) + '_EXT_' + (x + 1);
         if (extSeenMap[extNum]) continue;
         extSeenMap[extNum] = true;
 
         var prevExt = existingExtByNum[extNum];
+        var extStatusRaw = normalizeStr(ext.reservationStatus || ext.status || 'paid');
+        var extPayRaw = normalizeStr(ext.payment_status || ext.paymentStatus || ext.paymentResult || (ext.paymentDate ? 'paid' : ext.paymentType) || 'paid');
         var extRecord = {
           id: prevExt ? prevExt.id : generateId('EXT'),
           extensionNumber: extNum,
-          reservationId: prevExt ? (prevExt.reservationId || '') : '',
-          reservationNumber: resNumForExt,
-          statusCode: normalizeStr(ext.status || 'accepted'),
-          statusAr: translateOriginalStatus(ext.status || 'accepted'),
-          paymentStatus: normalizeStr(ext.payment_status || 'paid'),
+          reservationId: prevExt && prevExt.reservationId ? prevExt.reservationId : resIdForExt,
+          reservationNumber: resNumForExt || resIdForExt,
+          statusCode: extStatusRaw,
+          statusAr: translateOriginalStatus(extStatusRaw),
+          paymentStatus: extPayRaw,
           extendDays: toNumber(ext.days || ext.extend_days, 0),
-          startDate: formatDateOnly(ext.start_date || ext.from_date),
-          endDate: formatDateOnly(ext.end_date || ext.to_date),
+          startDate: formatDateOnly(ext.extendDate || ext.startDate || ext.start_date || ext.from_date || ext.createdAt),
+          endDate: formatDateOnly(ext.endDate || ext.end_date || ext.to_date),
           amount: toNumber(ext.total || ext.amount || ext.price, 0),
           isAcceptedAndPaid: 'true',
           syncedAt: nowIso()
         };
 
         extRecordsToUpsert.push(extRecord);
-        if (!extByResNumber[resNumForExt]) extByResNumber[resNumForExt] = [];
-        extByResNumber[resNumForExt].push(extRecord);
+        if (resNumForExt) {
+          if (!extByResNumber[resNumForExt]) extByResNumber[resNumForExt] = [];
+          extByResNumber[resNumForExt].push(extRecord);
+        }
+        if (resIdForExt) {
+          if (!extByResId[resIdForExt]) extByResId[resIdForExt] = [];
+          extByResId[resIdForExt].push(extRecord);
+        }
       }
 
       // 2. Fetch reservations across pages, deduplicate by reservationNumber
@@ -267,26 +289,44 @@ function runRentalGateSyncInternal(actor) {
 
       for (var i = 0; i < resFetch.items.length; i++) {
         var item = resFetch.items[i];
-        var resNumber = normalizeStr(item.reservation_number || item.code || item.reference || item.id);
+        var resApiId = normalizeStr(item.reservationId || item.id);
+        var resNumber = normalizeStr(item.reservationNumber || item.reservation_number || item.code || item.reference || resApiId);
         if (!resNumber || resSeenMap[resNumber]) continue;
         resSeenMap[resNumber] = true;
 
-        var statusCode = normalizeStr(item.status || item.status_code).toLowerCase();
+        var statusCode = normalizeStr(item.reservationStatus || item.status || item.status_code).toLowerCase();
         if (excludedSet[statusCode]) continue;
 
-        var extsForThis = extByResNumber[resNumber] || [];
-        var extAmountSum = 0;
-        for (var j = 0; j < extsForThis.length; j++) {
-          extAmountSum += toNumber(extsForThis[j].amount, 0);
+        var combinedExts = [];
+        var extSeenForRes = {};
+        var byNumList = extByResNumber[resNumber] || [];
+        var byIdList = resApiId ? (extByResId[resApiId] || []) : [];
+        var mergedLists = byNumList.concat(byIdList);
+        for (var m = 0; m < mergedLists.length; m++) {
+          var candExt = mergedLists[m];
+          if (!extSeenForRes[candExt.extensionNumber]) {
+            extSeenForRes[candExt.extensionNumber] = true;
+            combinedExts.push(candExt);
+          }
         }
 
-        var baseAmount = toNumber(item.total_price || item.total || item.amount || item.base_amount, 0);
-        var totalAmount = computeTotalAmount(baseAmount, extsForThis);
+        var extAmountSum = 0;
+        for (var j = 0; j < combinedExts.length; j++) {
+          extAmountSum += toNumber(combinedExts[j].amount, 0);
+        }
+        if (combinedExts.length === 0 && toBool(item.extended) && toNumber(item.extensionsTotal, 0) > 0) {
+          extAmountSum = toNumber(item.extensionsTotal, 0);
+        }
+
+        var baseAmount = toNumber(item.total || item.total_price || item.amount || item.base_amount, 0);
+        var totalAmount = combinedExts.length > 0
+          ? computeTotalAmount(baseAmount, combinedExts)
+          : Math.round((baseAmount + extAmountSum) * 100) / 100;
         var existing = existingByNumber[resNumber];
         var resId = existing ? existing.id : generateId('RES');
 
-        for (var k = 0; k < extsForThis.length; k++) {
-          extsForThis[k].reservationId = resId;
+        for (var k = 0; k < combinedExts.length; k++) {
+          combinedExts[k].reservationId = resId;
         }
 
         var customerObj = item.customer || item.user || {};
@@ -298,24 +338,24 @@ function runRentalGateSyncInternal(actor) {
         var resPayload = {
           id: resId,
           reservationNumber: resNumber,
-          customerName: normalizeStr(item.customer_name || customerObj.name || customerObj.full_name || 'عميل'),
-          customerPhone: normalizeStr(item.customer_phone || customerObj.phone || customerObj.mobile || ''),
-          companyName: normalizeStr(item.company_name || companyObj.name || ''),
-          branchName: normalizeStr(item.branch_name || branchObj.name || ''),
-          carName: normalizeStr(item.car_name || carObj.name || (carObj.brand ? (carObj.brand + ' ' + (carObj.model || '')) : '')),
-          plateNumber: normalizeStr(item.plate_number || carObj.plate_number || ''),
-          startDate: formatDateOnly(item.start_date || item.pickup_date),
-          endDate: formatDateOnly(item.end_date || item.return_date),
-          daysCount: toNumber(item.days_count || item.days, 1),
+          customerName: normalizeStr(item.clientName || item.customer_name || customerObj.name || customerObj.full_name || 'عميل'),
+          customerPhone: normalizeStr(item.clientMobile || item.customer_phone || customerObj.phone || customerObj.mobile || ''),
+          companyName: normalizeStr(item.companyArName || item.companyEnName || item.company_name || companyObj.name || ''),
+          branchName: normalizeStr(item.receiveBranchArName || item.receiveBranchEnName || item.branch_name || branchObj.name || ''),
+          carName: normalizeStr(item.carNameAr || item.carNameEn || item.car_name || carObj.name || (carObj.brand ? (carObj.brand + ' ' + (carObj.model || '')) : '')),
+          plateNumber: normalizeStr(item.plate_number || item.plateNumber || carObj.plate_number || ''),
+          startDate: formatDateOnly(item.startDate || item.start_date || item.pickup_date),
+          endDate: formatDateOnly(item.actualEndDate || item.endDate || item.end_date || item.return_date),
+          daysCount: toNumber(item.reservationDays || item.days_count || item.days, 1),
           originalStatusCode: statusCode,
           originalStatusAr: translateOriginalStatus(statusCode),
-          pickupTypeAr: translateDeliveryType(item.pickup_type || item.delivery_type),
-          returnTypeAr: translateDeliveryType(item.return_type || item.dropoff_type),
+          pickupTypeAr: translateDeliveryType(item.receiveType || item.pickup_type || item.delivery_type),
+          returnTypeAr: translateDeliveryType(item.deliverType || item.return_type || item.dropoff_type),
           baseAmount: baseAmount,
           extensionsAmount: Math.round(extAmountSum * 100) / 100,
           totalAmount: totalAmount,
-          hasExtensions: extsForThis.length > 0 ? 'true' : 'false',
-          internalStatus: existing ? existing.internalStatus : (extsForThis.length > 0 ? 'تم التمديد' : 'تم الإنشاء'),
+          hasExtensions: (combinedExts.length > 0 || toBool(item.extended)) ? 'true' : 'false',
+          internalStatus: existing ? existing.internalStatus : ((combinedExts.length > 0 || toBool(item.extended)) ? 'تم التمديد' : 'تم الإنشاء'),
           priority: existing ? existing.priority : 'عادي',
           assignedEmployeeIds: existing ? existing.assignedEmployeeIds : '[]',
           assignedEmployeeNames: existing ? existing.assignedEmployeeNames : '[]',
