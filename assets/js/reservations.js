@@ -72,10 +72,10 @@
 
     var employees = (empRes.success && empRes.data.items) || [];
     var payload = (resData.success && resData.data) || { items: [], total: 0, page: 1, totalPages: 1, facets: { companies: [], branches: [] } };
-    var items = payload.items || [];
+    var currentItems = payload.items || [];
+    var currentTotalPages = payload.totalPages || 1;
     var facets = payload.facets || { companies: [], branches: [] };
 
-    var currentUser = root.RGAuth.getUser();
     var canPullReservations = Boolean(currentUser && root.RGCrmCore.canUserPerform(currentUser, 'pull_reservations'));
 
     container.innerHTML =
@@ -83,7 +83,7 @@
         '<div class="section-header">' +
           '<div>' +
             '<h2 class="section-title">' + t('nav_reservations') + '</h2>' +
-            '<p class="section-subtitle">إجمالي النتائج المطابقة: <strong class="tabular-nums">' + payload.total + '</strong> · يمكنك استلام أي حجز وتحديث حالته مباشرة أو فتح التفاصيل</p>' +
+            '<p class="section-subtitle">إجمالي النتائج المطابقة: <strong class="tabular-nums" id="res-total-count">' + payload.total + '</strong> · يمكنك استلام أي حجز وتحديث حالته مباشرة أو فتح التفاصيل</p>' +
           '</div>' +
           '<div class="toolbar-row" style="margin-bottom:0;">' +
             (canPullReservations ? '<button type="button" class="btn btn-charcoal" id="res-pull-btn" title="جلب أحدث الحجوزات والتمديدات">' + t('pull_reservations') + '</button>' : '') +
@@ -124,78 +124,189 @@
             }).join('') +
           '</div>' +
         '</div>' +
-        (items.length === 0
-          ? '<div class="empty-state">لا توجد حجوزات مطابقة للفلاتر الحالية.</div>'
-          : '<div class="table-wrap"><table class="data-table"><thead><tr>' +
-              ALL_COLUMNS.filter(function (c) { return state.visibleCols.indexOf(c.key) !== -1; }).map(function (c) {
-                var arrow = state.sortBy === c.key ? (state.sortDir === 'asc' ? ' ↑' : ' ↓') : '';
-                return '<th class="sortable" data-sort="' + c.key + '">' + c.label + arrow + '</th>';
-              }).join('') +
-              '<th>إجراءات</th>' +
-            '</tr></thead><tbody>' +
-              items.map(function (r) {
-                var assignedIds = Array.isArray(r.assignedEmployeeIds) ? r.assignedEmployeeIds : [];
-                var assignedNames = Array.isArray(r.assignedEmployeeNames) ? r.assignedEmployeeNames : [];
-                var isMine = currentEmpId && assignedIds.indexOf(currentEmpId) !== -1;
-
-                var tds = ALL_COLUMNS.filter(function (c) { return state.visibleCols.indexOf(c.key) !== -1; }).map(function (c) {
-                  if (c.key === 'reservationNumber') {
-                    return '<td class="mono"><button type="button" class="btn-link-inline btn-open-res" data-id="' + esc(r.id) + '">' + esc(r.reservationNumber) + '</button>' +
-                      (r.hasExtensions ? ' <span class="status-tag status-info">تمديد</span>' : '') +
-                      (r.hasProblem ? ' <span class="status-tag status-danger">مشكلة</span>' : '') + '</td>';
-                  }
-                  if (c.key === 'originalStatusAr') {
-                    return '<td><span class="status-tag ' + statusClass(r.originalStatusAr) + '">' + esc(r.originalStatusAr) + '</span></td>';
-                  }
-                  if (c.key === 'internalStatus') {
-                    return '<td>' +
-                      '<select class="quick-status-select tbl-quick-status" data-id="' + esc(r.id) + '" aria-label="تحديث حالة الحجز ' + esc(r.reservationNumber) + '">' +
-                        root.RGCrmCore.FOLLOWUP_STATUSES.map(function (s) {
-                          return '<option value="' + esc(s) + '"' + (r.internalStatus === s ? ' selected' : '') + '>' + esc(s) + '</option>';
-                        }).join('') +
-                      '</select>' +
-                    '</td>';
-                  }
-                  if (c.key === 'priority') {
-                    return '<td><span class="status-tag ' + priorityClass(r.priority) + '">' + esc(r.priority || 'عادي') + '</span></td>';
-                  }
-                  if (c.key === 'assignedEmployeeNames') {
-                    if (!assignedNames.length) {
-                      return '<td><span class="status-tag status-neutral">متاح للاستلام</span></td>';
-                    }
-                    return '<td><div style="display:flex;flex-wrap:wrap;gap:4px;">' +
-                      assignedNames.map(function (n, idx) {
-                        var isSelf = currentEmpId && assignedIds[idx] === currentEmpId;
-                        return '<span class="status-tag ' + (isSelf ? 'status-success' : 'status-info') + '">' + esc(n) + '</span>';
-                      }).join('') +
-                    '</div></td>';
-                  }
-                  if (c.key === 'lastUpdatedAt') {
-                    return '<td class="mono">' + formatTimestamp(r.lastUpdatedAt) + '</td>';
-                  }
-                  return '<td class="tabular-nums">' + esc(r[c.key] || '-') + '</td>';
-                }).join('');
-
-                var claimBtnHtml = isMine
-                  ? '<button type="button" class="btn btn-sm btn-danger btn-unclaim-res" data-id="' + esc(r.id) + '" title="إلغاء الاستلام من حسابك">مستلم ✓ · إلغاء</button>'
-                  : '<button type="button" class="btn btn-sm btn-charcoal btn-claim-res" data-id="' + esc(r.id) + '" title="استلام الحجز عندي للمتابعة">استلام عندي</button>';
-
-                return '<tr data-res-id="' + esc(r.id) + '">' + tds +
-                  '<td><div style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap;">' +
-                    claimBtnHtml +
-                    '<button type="button" class="btn btn-sm btn-primary btn-open-res" data-id="' + esc(r.id) + '">التفاصيل</button>' +
-                  '</div></td>' +
-                '</tr>';
-              }).join('') +
-            '</tbody></table></div>') +
-        '<div class="pagination-bar">' +
-          '<span>صفحة <strong class="tabular-nums">' + payload.page + '</strong> من <strong class="tabular-nums">' + payload.totalPages + '</strong></span>' +
-          '<div class="toolbar-row" style="margin-bottom:0;">' +
-            '<button type="button" class="btn btn-sm" id="res-prev"' + (payload.page <= 1 ? ' disabled' : '') + '>السابق</button>' +
-            '<button type="button" class="btn btn-sm" id="res-next"' + (payload.page >= payload.totalPages ? ' disabled' : '') + '>التالي</button>' +
-          '</div>' +
-        '</div>' +
+        '<div id="res-table-region"></div>' +
       '</div>';
+
+    var activeFetchSeq = 0;
+
+    function buildTableRegionHtml(data) {
+      var list = data.items || [];
+      var visibleCols = ALL_COLUMNS.filter(function (c) { return state.visibleCols.indexOf(c.key) !== -1; });
+      return (list.length === 0
+        ? '<div class="empty-state">لا توجد حجوزات مطابقة للفلاتر الحالية.</div>'
+        : '<div class="table-wrap"><table class="data-table"><thead><tr>' +
+            visibleCols.map(function (c) {
+              var arrow = state.sortBy === c.key ? (state.sortDir === 'asc' ? ' ↑' : ' ↓') : '';
+              return '<th class="sortable" data-sort="' + c.key + '">' + c.label + arrow + '</th>';
+            }).join('') +
+            '<th>إجراءات</th>' +
+          '</tr></thead><tbody>' +
+            list.map(function (r) {
+              var assignedIds = Array.isArray(r.assignedEmployeeIds) ? r.assignedEmployeeIds : [];
+              var assignedNames = Array.isArray(r.assignedEmployeeNames) ? r.assignedEmployeeNames : [];
+              var isMine = currentEmpId && assignedIds.indexOf(currentEmpId) !== -1;
+
+              var tds = visibleCols.map(function (c) {
+                if (c.key === 'reservationNumber') {
+                  return '<td class="mono"><button type="button" class="btn-link-inline btn-open-res" data-id="' + esc(r.id) + '">' + esc(r.reservationNumber) + '</button>' +
+                    (r.hasExtensions ? ' <span class="status-tag status-info">تمديد</span>' : '') +
+                    (r.hasProblem ? ' <span class="status-tag status-danger">مشكلة</span>' : '') + '</td>';
+                }
+                if (c.key === 'originalStatusAr') {
+                  return '<td><span class="status-tag ' + statusClass(r.originalStatusAr) + '">' + esc(r.originalStatusAr) + '</span></td>';
+                }
+                if (c.key === 'internalStatus') {
+                  return '<td>' +
+                    '<select class="quick-status-select tbl-quick-status" data-id="' + esc(r.id) + '" aria-label="تحديث حالة الحجز ' + esc(r.reservationNumber) + '">' +
+                      root.RGCrmCore.FOLLOWUP_STATUSES.map(function (s) {
+                        return '<option value="' + esc(s) + '"' + (r.internalStatus === s ? ' selected' : '') + '>' + esc(s) + '</option>';
+                      }).join('') +
+                    '</select>' +
+                  '</td>';
+                }
+                if (c.key === 'priority') {
+                  return '<td><span class="status-tag ' + priorityClass(r.priority) + '">' + esc(r.priority || 'عادي') + '</span></td>';
+                }
+                if (c.key === 'assignedEmployeeNames') {
+                  if (!assignedNames.length) {
+                    return '<td><span class="status-tag status-neutral">متاح للاستلام</span></td>';
+                  }
+                  return '<td><div style="display:flex;flex-wrap:wrap;gap:4px;">' +
+                    assignedNames.map(function (n, idx) {
+                      var isSelf = currentEmpId && assignedIds[idx] === currentEmpId;
+                      return '<span class="status-tag ' + (isSelf ? 'status-success' : 'status-info') + '">' + esc(n) + '</span>';
+                    }).join('') +
+                  '</div></td>';
+                }
+                if (c.key === 'lastUpdatedAt') {
+                  return '<td class="mono">' + formatTimestamp(r.lastUpdatedAt) + '</td>';
+                }
+                return '<td class="tabular-nums">' + esc(r[c.key] || '-') + '</td>';
+              }).join('');
+
+              var claimBtnHtml = isMine
+                ? '<button type="button" class="btn btn-sm btn-danger btn-unclaim-res" data-id="' + esc(r.id) + '" title="إلغاء الاستلام من حسابك">مستلم ✓ · إلغاء</button>'
+                : '<button type="button" class="btn btn-sm btn-charcoal btn-claim-res" data-id="' + esc(r.id) + '" title="استلام الحجز عندي للمتابعة">استلام عندي</button>';
+
+              return '<tr data-res-id="' + esc(r.id) + '">' + tds +
+                '<td><div style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap;">' +
+                  claimBtnHtml +
+                  '<button type="button" class="btn btn-sm btn-primary btn-open-res" data-id="' + esc(r.id) + '">التفاصيل</button>' +
+                '</div></td>' +
+              '</tr>';
+            }).join('') +
+          '</tbody></table></div>') +
+        '<div class="pagination-bar">' +
+          '<span>صفحة <strong class="tabular-nums">' + (data.page || 1) + '</strong> من <strong class="tabular-nums">' + (data.totalPages || 1) + '</strong></span>' +
+          '<div class="toolbar-row" style="margin-bottom:0;">' +
+            '<button type="button" class="btn btn-sm" id="res-prev"' + ((data.page || 1) <= 1 ? ' disabled' : '') + '>السابق</button>' +
+            '<button type="button" class="btn btn-sm" id="res-next"' + ((data.page || 1) >= (data.totalPages || 1) ? ' disabled' : '') + '>التالي</button>' +
+          '</div>' +
+        '</div>';
+    }
+
+    function bindTableRegionEvents(region) {
+      region.querySelectorAll('th[data-sort]').forEach(function (th) {
+        th.addEventListener('click', function () {
+          var col = th.getAttribute('data-sort');
+          if (state.sortBy === col) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+          else { state.sortBy = col; state.sortDir = 'desc'; }
+          refreshTableRegion();
+        });
+      });
+
+      var prevBtn = region.querySelector('#res-prev');
+      if (prevBtn) {
+        prevBtn.addEventListener('click', function () {
+          if (state.page > 1) { state.page--; refreshTableRegion(); }
+        });
+      }
+      var nextBtn = region.querySelector('#res-next');
+      if (nextBtn) {
+        nextBtn.addEventListener('click', function () {
+          if (state.page < currentTotalPages) { state.page++; refreshTableRegion(); }
+        });
+      }
+
+      region.querySelectorAll('.tbl-quick-status').forEach(function (sel) {
+        sel.addEventListener('change', async function () {
+          var rid = sel.getAttribute('data-id');
+          sel.disabled = true;
+          var resp = await root.RGApi.callApi('quickUpdateReservationStatus', {
+            reservationId: rid,
+            status: sel.value
+          });
+          if (resp.success) {
+            ctx.toast('تم تحديث حالة الحجز إلى: ' + sel.value);
+            ctx.refreshNotifications();
+            refreshTableRegion();
+          } else {
+            ctx.toast(resp.message, true);
+            sel.disabled = false;
+          }
+        });
+      });
+
+      region.querySelectorAll('.btn-claim-res').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          btn.disabled = true;
+          var resp = await root.RGApi.callApi('claimReservation', { reservationId: btn.getAttribute('data-id') });
+          if (resp.success) {
+            ctx.toast(resp.message || 'تم استلام الحجز في قائمتك بنجاح.');
+            ctx.refreshNotifications();
+            refreshTableRegion();
+          } else {
+            ctx.toast(resp.message, true);
+            btn.disabled = false;
+          }
+        });
+      });
+
+      region.querySelectorAll('.btn-unclaim-res').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          btn.disabled = true;
+          var resp = await root.RGApi.callApi('unclaimReservation', { reservationId: btn.getAttribute('data-id') });
+          if (resp.success) {
+            ctx.toast(resp.message || 'تم إلغاء استلام الحجز.');
+            ctx.refreshNotifications();
+            refreshTableRegion();
+          } else {
+            ctx.toast(resp.message, true);
+            btn.disabled = false;
+          }
+        });
+      });
+
+      region.querySelectorAll('.btn-open-res').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          openReservationDrawer(btn.getAttribute('data-id'), ctx, employees, function () {
+            refreshTableRegion();
+          });
+        });
+      });
+    }
+
+    function paintTableRegion(data) {
+      var region = container.querySelector('#res-table-region');
+      if (!region) return;
+      currentItems = data.items || [];
+      currentTotalPages = data.totalPages || 1;
+      var totalEl = container.querySelector('#res-total-count');
+      if (totalEl) totalEl.textContent = String(data.total || 0);
+      region.innerHTML = buildTableRegionHtml(data);
+      bindTableRegionEvents(region);
+    }
+
+    async function refreshTableRegion() {
+      var seq = ++activeFetchSeq;
+      var resp = await root.RGApi.callApi('getReservations', state);
+      if (seq !== activeFetchSeq) return;
+      if (resp && resp.success && resp.data) {
+        paintTableRegion(resp.data);
+      }
+    }
+
+    paintTableRegion(payload);
 
     function applyFilterChange() {
       state.search = document.getElementById('res-search').value;
@@ -209,7 +320,7 @@
       state.unfollowedOnly = document.getElementById('res-unfollowed').checked;
       state.hasProblemsOnly = document.getElementById('res-problems').checked;
       state.page = 1;
-      render(container, ctx);
+      refreshTableRegion();
     }
 
     var searchTimer = null;
@@ -224,7 +335,17 @@
 
     document.getElementById('res-reset-filters').addEventListener('click', function () {
       Object.assign(state, { search: '', company: '', branch: '', status: '', employeeId: '', priority: '', dateFrom: '', dateTo: '', unfollowedOnly: false, hasProblemsOnly: false, page: 1 });
-      render(container, ctx);
+      document.getElementById('res-search').value = '';
+      document.getElementById('res-company').value = '';
+      document.getElementById('res-branch').value = '';
+      document.getElementById('res-status').value = '';
+      document.getElementById('res-emp').value = '';
+      document.getElementById('res-prio').value = '';
+      document.getElementById('res-from').value = '';
+      document.getElementById('res-to').value = '';
+      document.getElementById('res-unfollowed').checked = false;
+      document.getElementById('res-problems').checked = false;
+      refreshTableRegion();
     });
 
     document.getElementById('res-cols-btn').addEventListener('click', function () {
@@ -237,25 +358,14 @@
         if (next.length > 0) {
           state.visibleCols = next;
           localStorage.setItem('rg_crm_visible_cols', JSON.stringify(next));
-          render(container, ctx);
+          paintTableRegion({
+            items: currentItems,
+            total: Number((container.querySelector('#res-total-count') && container.querySelector('#res-total-count').textContent) || currentItems.length),
+            page: state.page,
+            totalPages: currentTotalPages
+          });
         }
       });
-    });
-
-    container.querySelectorAll('th[data-sort]').forEach(function (th) {
-      th.addEventListener('click', function () {
-        var col = th.getAttribute('data-sort');
-        if (state.sortBy === col) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
-        else { state.sortBy = col; state.sortDir = 'desc'; }
-        render(container, ctx);
-      });
-    });
-
-    document.getElementById('res-prev').addEventListener('click', function () {
-      if (state.page > 1) { state.page--; render(container, ctx); }
-    });
-    document.getElementById('res-next').addEventListener('click', function () {
-      if (state.page < payload.totalPages) { state.page++; render(container, ctx); }
     });
 
     var pullBtn = document.getElementById('res-pull-btn');
@@ -265,6 +375,8 @@
         var prevLabel = pullBtn.textContent;
         pullBtn.textContent = ctx.lang === 'en' ? 'Pulling reservations...' : 'جاري سحب الحجوزات...';
         var resp = await root.RGApi.callApi('pullReservations', {});
+        pullBtn.disabled = false;
+        pullBtn.textContent = prevLabel;
         if (resp.success && resp.data) {
           var d = resp.data;
           var msg = ctx.lang === 'en'
@@ -272,82 +384,28 @@
             : ('تم سحب الحجوزات بنجاح: ' + (d.importedCount || 0) + ' جديد · ' + (d.updatedCount || 0) + ' محدث · ' + (d.extensionsCount || 0) + ' تمديد');
           ctx.toast(msg);
           ctx.refreshNotifications();
-          render(container, ctx);
+          refreshTableRegion();
         } else {
           ctx.toast(resp.message || 'تعذر سحب الحجوزات.', true);
-          pullBtn.disabled = false;
-          pullBtn.textContent = prevLabel;
         }
       });
     }
 
-    document.getElementById('res-export-xlsx').addEventListener('click', function () {
-      root.RGReports.exportExcelWorkbook([{
-        name: 'Reservations',
-        headers: ALL_COLUMNS.filter(function (c) { return state.visibleCols.indexOf(c.key) !== -1; }),
-        rows: items
-      }], 'rental-gate-reservations.xlsx');
-      ctx.toast('تم تصدير جدول الحجوزات إلى Excel.');
-    });
-
-    // Inline quick status change from Reservations table
-    container.querySelectorAll('.tbl-quick-status').forEach(function (sel) {
-      sel.addEventListener('change', async function () {
-        var rid = sel.getAttribute('data-id');
-        sel.disabled = true;
-        var resp = await root.RGApi.callApi('quickUpdateReservationStatus', {
-          reservationId: rid,
-          status: sel.value
-        });
-        if (resp.success) {
-          ctx.toast('تم تحديث حالة الحجز إلى: ' + sel.value);
-          ctx.refreshNotifications();
-          render(container, ctx);
-        } else {
-          ctx.toast(resp.message, true);
-          sel.disabled = false;
-        }
-      });
-    });
-
-    // Self-claim reservation without waiting for supervisor assignment
-    container.querySelectorAll('.btn-claim-res').forEach(function (btn) {
-      btn.addEventListener('click', async function () {
-        btn.disabled = true;
-        var resp = await root.RGApi.callApi('claimReservation', { reservationId: btn.getAttribute('data-id') });
-        if (resp.success) {
-          ctx.toast(resp.message || 'تم استلام الحجز في قائمتك بنجاح.');
-          ctx.refreshNotifications();
-          render(container, ctx);
-        } else {
-          ctx.toast(resp.message, true);
-          btn.disabled = false;
-        }
-      });
-    });
-
-    // Self-unclaim reservation right from table
-    container.querySelectorAll('.btn-unclaim-res').forEach(function (btn) {
-      btn.addEventListener('click', async function () {
-        btn.disabled = true;
-        var resp = await root.RGApi.callApi('unclaimReservation', { reservationId: btn.getAttribute('data-id') });
-        if (resp.success) {
-          ctx.toast(resp.message || 'تم إلغاء استلام الحجز.');
-          ctx.refreshNotifications();
-          render(container, ctx);
-        } else {
-          ctx.toast(resp.message, true);
-          btn.disabled = false;
-        }
-      });
-    });
-
-    container.querySelectorAll('.btn-open-res').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        openReservationDrawer(btn.getAttribute('data-id'), ctx, employees, function () {
-          render(container, ctx);
-        });
-      });
+    var exportBtn = document.getElementById('res-export-xlsx');
+    exportBtn.addEventListener('click', async function () {
+      exportBtn.disabled = true;
+      try {
+        await root.RGReports.exportExcelWorkbook([{
+          name: 'Reservations',
+          headers: ALL_COLUMNS.filter(function (c) { return state.visibleCols.indexOf(c.key) !== -1; }),
+          rows: currentItems
+        }], 'rental-gate-reservations.xlsx');
+        ctx.toast('تم تصدير جدول الحجوزات إلى Excel.');
+      } catch (err) {
+        ctx.toast((err && err.message) || 'تعذر تصدير ملف Excel.', true);
+      } finally {
+        exportBtn.disabled = false;
+      }
     });
   }
 

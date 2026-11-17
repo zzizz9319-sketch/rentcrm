@@ -83,12 +83,19 @@ var RG_SHEETS_SCHEMA = {
   ]
 };
 
+var _rgSpreadsheetCache = null;
+var _rgVerifiedSheetsCache = {};
+var RG_CACHE_CHUNK_SIZE = 75000;
+var RG_CACHE_MAX_CHUNKS = 12;
+
 function getSpreadsheet() {
+  if (_rgSpreadsheetCache) return _rgSpreadsheetCache;
   var props = PropertiesService.getScriptProperties();
   var sheetId = normalizeStr(props.getProperty('SPREADSHEET_ID'));
   if (sheetId) {
     try {
-      return SpreadsheetApp.openById(sheetId);
+      _rgSpreadsheetCache = SpreadsheetApp.openById(sheetId);
+      return _rgSpreadsheetCache;
     } catch (e) {
       throw new Error('تعذر فتح ملف Google Sheets بالمعرف المخزن (' + sheetId + '): ' + e.message);
     }
@@ -97,12 +104,14 @@ function getSpreadsheet() {
   var active = SpreadsheetApp.getActiveSpreadsheet();
   if (active) {
     props.setProperty('SPREADSHEET_ID', active.getId());
-    return active;
+    _rgSpreadsheetCache = active;
+    return _rgSpreadsheetCache;
   }
 
   var created = SpreadsheetApp.create('RENTAL_GATE_CRM_DB');
   props.setProperty('SPREADSHEET_ID', created.getId());
-  return created;
+  _rgSpreadsheetCache = created;
+  return _rgSpreadsheetCache;
 }
 
 function withScriptLock(fn) {
@@ -124,7 +133,12 @@ function getCacheKey(sheetName) {
 
 function invalidateCache(sheetName) {
   try {
-    CacheService.getScriptCache().remove(getCacheKey(sheetName));
+    var base = getCacheKey(sheetName);
+    var keys = [base, base + '_META'];
+    for (var i = 0; i < RG_CACHE_MAX_CHUNKS; i++) {
+      keys.push(base + '_' + i);
+    }
+    CacheService.getScriptCache().removeAll(keys);
   } catch (e) {}
 }
 
@@ -132,6 +146,54 @@ function invalidateAllCaches() {
   var names = Object.keys(RG_SHEETS_SCHEMA);
   for (var i = 0; i < names.length; i++) {
     invalidateCache(names[i]);
+  }
+}
+
+function putChunkedCache_(sheetName, serialized) {
+  try {
+    var cache = CacheService.getScriptCache();
+    var base = getCacheKey(sheetName);
+    if (serialized.length <= RG_CACHE_CHUNK_SIZE) {
+      cache.put(base, serialized, 180);
+      return;
+    }
+    var totalChunks = Math.ceil(serialized.length / RG_CACHE_CHUNK_SIZE);
+    if (totalChunks > RG_CACHE_MAX_CHUNKS) return;
+    var batch = {};
+    batch[base + '_META'] = String(totalChunks);
+    for (var i = 0; i < totalChunks; i++) {
+      batch[base + '_' + i] = serialized.substring(i * RG_CACHE_CHUNK_SIZE, (i + 1) * RG_CACHE_CHUNK_SIZE);
+    }
+    cache.remove(base);
+    cache.putAll(batch, 180);
+  } catch (e) {}
+}
+
+function getChunkedCache_(sheetName) {
+  try {
+    var cache = CacheService.getScriptCache();
+    var base = getCacheKey(sheetName);
+    var direct = cache.get(base);
+    if (direct) return JSON.parse(direct);
+
+    var metaRaw = cache.get(base + '_META');
+    var totalChunks = Number(metaRaw || 0);
+    if (!totalChunks || totalChunks < 1 || totalChunks > RG_CACHE_MAX_CHUNKS) return null;
+
+    var keys = [];
+    for (var i = 0; i < totalChunks; i++) {
+      keys.push(base + '_' + i);
+    }
+    var got = cache.getAll(keys);
+    var parts = [];
+    for (var j = 0; j < totalChunks; j++) {
+      var chunk = got[base + '_' + j];
+      if (!chunk) return null;
+      parts.push(chunk);
+    }
+    return JSON.parse(parts.join(''));
+  } catch (e) {
+    return null;
   }
 }
 
@@ -177,14 +239,23 @@ function getSheetOrCreate(ss, sheetName) {
   var headers = RG_SHEETS_SCHEMA[sheetName] || [];
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
+    _rgVerifiedSheetsCache[sheetName] = ensureSheetSchemaColumns(sheet, headers);
+    return sheet;
   }
-  ensureSheetSchemaColumns(sheet, headers);
+  if (!_rgVerifiedSheetsCache[sheetName]) {
+    _rgVerifiedSheetsCache[sheetName] = ensureSheetSchemaColumns(sheet, headers);
+  }
   return sheet;
 }
 
 function getEffectiveHeaders(sheet, sheetName) {
+  if (_rgVerifiedSheetsCache[sheetName]) {
+    return _rgVerifiedSheetsCache[sheetName];
+  }
   var schemaHeaders = RG_SHEETS_SCHEMA[sheetName] || [];
-  return ensureSheetSchemaColumns(sheet, schemaHeaders);
+  var resolved = ensureSheetSchemaColumns(sheet, schemaHeaders);
+  _rgVerifiedSheetsCache[sheetName] = resolved;
+  return resolved;
 }
 
 function syncUserSheetRecord(emp) {
@@ -315,12 +386,10 @@ function initDatabase() {
 
 function readAllRecords(sheetName, skipCache) {
   if (!skipCache) {
-    try {
-      var cached = CacheService.getScriptCache().get(getCacheKey(sheetName));
-      if (cached) {
-        return JSON.parse(cached);
-      }
-    } catch (e) {}
+    var cachedRecords = getChunkedCache_(sheetName);
+    if (cachedRecords) {
+      return cachedRecords;
+    }
   }
 
   var ss = getSpreadsheet();
@@ -353,20 +422,36 @@ function readAllRecords(sheetName, skipCache) {
 
   if (!skipCache) {
     try {
-      var serialized = JSON.stringify(records);
-      if (serialized.length < 90000) {
-        CacheService.getScriptCache().put(getCacheKey(sheetName), serialized, 120);
+      var cachePayload = records;
+      if (sheetName === RG_SHEETS.RESERVATIONS) {
+        cachePayload = records.map(function (rec) {
+          var slim = Object.assign({}, rec);
+          delete slim.rawJson;
+          return slim;
+        });
       }
+      putChunkedCache_(sheetName, JSON.stringify(cachePayload));
     } catch (e) {}
   }
 
   return records;
 }
 
-function findRecordById(sheetName, idField, idValue) {
+function getSettingsMap_(skipCache) {
+  var rows = readAllRecords(RG_SHEETS.SETTINGS, Boolean(skipCache));
+  var map = {};
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i] && rows[i].key) {
+      map[rows[i].key] = rows[i].value;
+    }
+  }
+  return map;
+}
+
+function findRecordById(sheetName, idField, idValue, skipCache) {
   var target = normalizeStr(idValue);
   if (!target) return null;
-  var rows = readAllRecords(sheetName, true);
+  var rows = readAllRecords(sheetName, Boolean(skipCache));
   for (var i = 0; i < rows.length; i++) {
     if (normalizeStr(rows[i][idField]) === target) {
       return rows[i];

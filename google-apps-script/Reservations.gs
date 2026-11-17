@@ -5,8 +5,8 @@
 function getReservations(session, params) {
   var p = params || {};
   var all = readAllRecords(RG_SHEETS.RESERVATIONS, false);
-  var allowAllSetting = findRecordById(RG_SHEETS.SETTINGS, 'key', 'allow_agent_view_all');
-  var allowAgentAll = allowAllSetting ? toBool(allowAllSetting.value) : true;
+  var settingsMap = getSettingsMap_(false);
+  var allowAgentAll = settingsMap.allow_agent_view_all !== undefined ? toBool(settingsMap.allow_agent_view_all) : true;
 
   var companiesMap = {};
   var branchesMap = {};

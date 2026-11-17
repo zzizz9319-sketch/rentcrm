@@ -4,11 +4,7 @@
 
 function getSettings(session) {
   requireApiAccess(session);
-  var rows = readAllRecords(RG_SHEETS.SETTINGS, true);
-  var map = {};
-  for (var i = 0; i < rows.length; i++) {
-    map[rows[i].key] = rows[i].value;
-  }
+  var map = getSettingsMap_(false);
 
   var intervalHours = Math.max(1, Math.min(168, toNumber(map.auto_sync_interval_hours, 12)));
   var autoSyncEnabled = map.auto_sync_enabled !== undefined ? toBool(map.auto_sync_enabled) : true;

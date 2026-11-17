@@ -41,6 +41,8 @@
     var baseOpts = {
       responsive: true,
       maintainAspectRatio: false,
+      animation: { duration: 150 },
+      responsiveAnimationDuration: 0,
       plugins: {
         legend: { labels: { color: c.text, font: { family: "'IBM Plex Sans Arabic', sans-serif", size: 12 } } }
       }

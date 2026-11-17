@@ -863,6 +863,81 @@
     }
   }
 
+  var API_CACHE_POLICIES = {
+    getMe: { cacheable: true, ttlMs: 60000, scope: 'employees' },
+    getEmployees: { cacheable: true, ttlMs: 60000, scope: 'employees' },
+    getEmployeeDetails: { cacheable: true, ttlMs: 25000, scope: 'employees' },
+    getDashboard: { cacheable: true, ttlMs: 20000, scope: 'dashboard' },
+    getReservations: { cacheable: true, ttlMs: 20000, scope: 'reservations' },
+    getReservationDetails: { cacheable: true, ttlMs: 20000, scope: 'reservations' },
+    getMyFollowUps: { cacheable: true, ttlMs: 20000, scope: 'followUps' },
+    getTeamFollowUps: { cacheable: true, ttlMs: 20000, scope: 'followUps' },
+    getFollowUpHistory: { cacheable: true, ttlMs: 25000, scope: 'followUps' },
+    getProblems: { cacheable: true, ttlMs: 20000, scope: 'problems' },
+    getNotifications: { cacheable: true, ttlMs: 15000, scope: 'notifications' },
+    getActivityLogs: { cacheable: true, ttlMs: 20000, scope: 'activity' },
+    getReports: { cacheable: true, ttlMs: 20000, scope: 'reports' },
+    getSettings: { cacheable: true, ttlMs: 45000, scope: 'settings' },
+    getSyncStatus: { cacheable: true, ttlMs: 30000, scope: 'sync' },
+    getTriggerStatus: { cacheable: true, ttlMs: 30000, scope: 'sync' }
+  };
+
+  var MUTATION_INVALIDATIONS = {
+    login: ['*'],
+    logout: ['*'],
+    claimReservation: ['reservations', 'dashboard', 'employees', 'activity', 'reports'],
+    unclaimReservation: ['reservations', 'dashboard', 'employees', 'activity', 'reports'],
+    quickUpdateReservationStatus: ['reservations', 'followUps', 'dashboard', 'employees', 'activity', 'reports'],
+    updateReservationDetails: ['reservations', 'dashboard', 'employees', 'activity', 'reports'],
+    addFollowUp: ['reservations', 'followUps', 'dashboard', 'employees', 'activity', 'reports'],
+    updateFollowUp: ['reservations', 'followUps', 'dashboard', 'employees', 'activity', 'reports'],
+    assignEmployees: ['reservations', 'dashboard', 'employees', 'notifications', 'activity', 'reports'],
+    removeAssignment: ['reservations', 'dashboard', 'employees', 'activity', 'reports'],
+    createProblem: ['reservations', 'problems', 'dashboard', 'employees', 'notifications', 'activity', 'reports'],
+    updateProblem: ['reservations', 'problems', 'dashboard', 'employees', 'notifications', 'activity', 'reports'],
+    createEmployee: ['employees', 'dashboard', 'activity', 'reports'],
+    updateEmployee: ['employees', 'dashboard', 'activity', 'reports'],
+    disableEmployee: ['employees', 'dashboard', 'activity', 'reports'],
+    saveRolePreset: ['employees', 'activity'],
+    deleteRolePreset: ['employees', 'activity'],
+    resetRolePresets: ['employees', 'activity'],
+    savePermissionDefinition: ['employees', 'activity'],
+    deletePermissionDefinition: ['employees', 'activity'],
+    markNotificationRead: ['notifications'],
+    pullReservations: ['reservations', 'dashboard', 'employees', 'sync', 'activity', 'reports'],
+    syncRentalGate: ['reservations', 'dashboard', 'employees', 'sync', 'activity', 'reports'],
+    updateSettings: ['settings', 'sync', 'reservations', 'activity']
+  };
+
+  function getApiCachePolicy(action) {
+    var key = normalizeStr(action);
+    return API_CACHE_POLICIES[key] || { cacheable: false, ttlMs: 0, scope: '' };
+  }
+
+  function stableSerializePayload(payload) {
+    if (!payload || typeof payload !== 'object') return '{}';
+    var ignored = { visibleCols: true, forceRefresh: true };
+    var keys = Object.keys(payload).filter(function (k) {
+      return !ignored[k] && payload[k] !== undefined;
+    }).sort();
+    var clean = {};
+    for (var i = 0; i < keys.length; i++) {
+      clean[keys[i]] = payload[keys[i]];
+    }
+    return JSON.stringify(clean);
+  }
+
+  function buildApiCacheKey(gasUrl, token, action, payload) {
+    var mode = normalizeStr(gasUrl) || 'sandbox';
+    var ses = normalizeStr(token) || 'anon';
+    return mode + '|' + ses + '|' + normalizeStr(action) + '|' + stableSerializePayload(payload);
+  }
+
+  function getCacheInvalidationScopes(action) {
+    var key = normalizeStr(action);
+    return MUTATION_INVALIDATIONS[key] || [];
+  }
+
   return {
     ROLES: ROLES,
     ROLE_LABELS: ROLE_LABELS,
@@ -897,6 +972,9 @@
     validateGasUrl: validateGasUrl,
     extractGasUrlFromSearch: extractGasUrlFromSearch,
     buildGasFetchOptions: buildGasFetchOptions,
-    parseGasResponseText: parseGasResponseText
+    parseGasResponseText: parseGasResponseText,
+    getApiCachePolicy: getApiCachePolicy,
+    buildApiCacheKey: buildApiCacheKey,
+    getCacheInvalidationScopes: getCacheInvalidationScopes
   };
 }));

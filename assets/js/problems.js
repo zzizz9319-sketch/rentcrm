@@ -39,7 +39,7 @@
     container.innerHTML =
       '<div class="surface-card">' +
         '<div class="section-header">' +
-          '<div><h2 class="section-title">' + t('nav_problems') + '</h2><p class="section-subtitle">إجمالي المشكلات المطابقة: <strong class="tabular-nums">' + items.length + '</strong></p></div>' +
+          '<div><h2 class="section-title">' + t('nav_problems') + '</h2><p class="section-subtitle">إجمالي المشكلات المطابقة: <strong class="tabular-nums" id="prb-total-count">' + items.length + '</strong></p></div>' +
         '</div>' +
         '<div class="filter-grid">' +
           '<input type="search" class="input" id="prb-search" placeholder="بحث برقم المشكلة أو الحجز أو العميل..." value="' + esc(state.search || '') + '">' +
@@ -54,34 +54,71 @@
           '</select>' +
           '<button type="button" class="btn btn-sm" id="prb-reset">إعادة ضبط</button>' +
         '</div>' +
-        (items.length === 0
-          ? '<div class="empty-state">لا توجد مشكلات مطابقة للفلاتر الحالية.</div>'
-          : '<div class="table-wrap"><table class="data-table"><thead><tr>' +
-              '<th>رقم المشكلة</th><th>رقم الحجز</th><th>العميل</th><th>الوصف</th><th>الأولوية</th><th>الحالة</th><th>المنشئ</th><th>المسؤولون</th><th>آخر تحديث</th><th>إدارة</th>' +
-            '</tr></thead><tbody>' +
-              items.map(function (p) {
-                return '<tr>' +
-                  '<td class="mono"><strong>' + esc(p.problemNumber) + '</strong></td>' +
-                  '<td class="mono"><button type="button" class="btn-link-inline prb-open-res" data-res-id="' + esc(p.reservationId) + '">' + esc(p.reservationNumber) + '</button></td>' +
-                  '<td>' + esc(p.customerName) + '</td>' +
-                  '<td style="max-width:260px;">' + esc(p.description) + '</td>' +
-                  '<td>' + prioBadge(p.priority) + '</td>' +
-                  '<td>' + statusBadge(p.status) + '</td>' +
-                  '<td>' + esc(p.createdByName) + '</td>' +
-                  '<td>' + esc((p.assignedEmployeeNames || []).join('، ') || '-') + '</td>' +
-                  '<td class="mono">' + String(p.updatedAt || '').replace('T', ' ').substring(0, 16) + '</td>' +
-                  '<td><button type="button" class="btn btn-sm btn-primary btn-manage-prb" data-id="' + esc(p.id) + '">متابعة / تحديث</button></td>' +
-                '</tr>';
-              }).join('') +
-            '</tbody></table></div>') +
+        '<div id="prb-table-region"></div>' +
       '</div>';
+
+    var activePrbSeq = 0;
+
+    function paintProblemsRegion(list) {
+      items = list || [];
+      var countEl = container.querySelector('#prb-total-count');
+      if (countEl) countEl.textContent = String(items.length);
+      var region = container.querySelector('#prb-table-region');
+      if (!region) return;
+      region.innerHTML = items.length === 0
+        ? '<div class="empty-state">لا توجد مشكلات مطابقة للفلاتر الحالية.</div>'
+        : '<div class="table-wrap"><table class="data-table"><thead><tr>' +
+            '<th>رقم المشكلة</th><th>رقم الحجز</th><th>العميل</th><th>الوصف</th><th>الأولوية</th><th>الحالة</th><th>المنشئ</th><th>المسؤولون</th><th>آخر تحديث</th><th>إدارة</th>' +
+          '</tr></thead><tbody>' +
+            items.map(function (p) {
+              return '<tr>' +
+                '<td class="mono"><strong>' + esc(p.problemNumber) + '</strong></td>' +
+                '<td class="mono"><button type="button" class="btn-link-inline prb-open-res" data-res-id="' + esc(p.reservationId) + '">' + esc(p.reservationNumber) + '</button></td>' +
+                '<td>' + esc(p.customerName) + '</td>' +
+                '<td style="max-width:260px;">' + esc(p.description) + '</td>' +
+                '<td>' + prioBadge(p.priority) + '</td>' +
+                '<td>' + statusBadge(p.status) + '</td>' +
+                '<td>' + esc(p.createdByName) + '</td>' +
+                '<td>' + esc((p.assignedEmployeeNames || []).join('، ') || '-') + '</td>' +
+                '<td class="mono">' + String(p.updatedAt || '').replace('T', ' ').substring(0, 16) + '</td>' +
+                '<td><button type="button" class="btn btn-sm btn-primary btn-manage-prb" data-id="' + esc(p.id) + '">متابعة / تحديث</button></td>' +
+              '</tr>';
+            }).join('') +
+          '</tbody></table></div>';
+
+      region.querySelectorAll('.prb-open-res').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          root.RGReservations.openReservationDrawer(btn.getAttribute('data-res-id'), ctx, employees, function () {
+            refreshProblemsRegion();
+          });
+        });
+      });
+
+      region.querySelectorAll('.btn-manage-prb').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var p = items.find(function (x) { return x.id === btn.getAttribute('data-id'); });
+          if (p) openProblemUpdateModal(p, employees, ctx, function () { refreshProblemsRegion(); });
+        });
+      });
+    }
+
+    async function refreshProblemsRegion() {
+      var seq = ++activePrbSeq;
+      var resp = await root.RGApi.callApi('getProblems', state);
+      if (seq !== activePrbSeq) return;
+      if (resp && resp.success && resp.data) {
+        paintProblemsRegion(resp.data.items || []);
+      }
+    }
+
+    paintProblemsRegion(items);
 
     var searchTimer = null;
     document.getElementById('prb-search').addEventListener('input', function (ev) {
       clearTimeout(searchTimer);
       searchTimer = setTimeout(function () {
         state.search = ev.target.value;
-        render(container, ctx);
+        refreshProblemsRegion();
       }, 220);
     });
 
@@ -90,28 +127,17 @@
         state.status = document.getElementById('prb-status').value;
         state.priority = document.getElementById('prb-prio').value;
         state.employeeId = document.getElementById('prb-emp').value;
-        render(container, ctx);
+        refreshProblemsRegion();
       });
     });
 
     document.getElementById('prb-reset').addEventListener('click', function () {
       state.status = ''; state.priority = ''; state.employeeId = ''; state.search = '';
-      render(container, ctx);
-    });
-
-    container.querySelectorAll('.prb-open-res').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        root.RGReservations.openReservationDrawer(btn.getAttribute('data-res-id'), ctx, employees, function () {
-          render(container, ctx);
-        });
-      });
-    });
-
-    container.querySelectorAll('.btn-manage-prb').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var p = items.find(function (x) { return x.id === btn.getAttribute('data-id'); });
-        if (p) openProblemUpdateModal(p, employees, ctx, function () { render(container, ctx); });
-      });
+      document.getElementById('prb-search').value = '';
+      document.getElementById('prb-status').value = '';
+      document.getElementById('prb-prio').value = '';
+      document.getElementById('prb-emp').value = '';
+      refreshProblemsRegion();
     });
   }
 

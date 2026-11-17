@@ -39,9 +39,28 @@
     return safeStorageGet(STORAGE_GAS_URL);
   }
 
+  var sandboxDbCache = null;
+  var apiResponseCache = {};
+  var inFlightRequests = {};
+
+  function clearCache(scopes) {
+    if (!scopes || (Array.isArray(scopes) && scopes.indexOf('*') !== -1)) {
+      apiResponseCache = {};
+      return;
+    }
+    var list = Array.isArray(scopes) ? scopes : [scopes];
+    Object.keys(apiResponseCache).forEach(function (k) {
+      var entry = apiResponseCache[k];
+      if (entry && list.indexOf(entry.scope) !== -1) {
+        delete apiResponseCache[k];
+      }
+    });
+  }
+
   function setGasUrl(url) {
     var clean = String(url || '').trim();
     safeStorageSet(STORAGE_GAS_URL, clean);
+    clearCache();
   }
 
   function getToken() {
@@ -50,6 +69,7 @@
 
   function setToken(token) {
     safeStorageSet(STORAGE_TOKEN, token ? String(token).trim() : '');
+    clearCache();
   }
 
   function isLiveMode() {
@@ -574,18 +594,21 @@
   }
 
   function loadSandboxDb() {
+    if (sandboxDbCache) {
+      return sandboxDbCache;
+    }
     var raw = safeStorageGet(STORAGE_DB);
     if (!raw) {
       var seeded = seedSandboxDb();
       saveSandboxDb(seeded);
-      return seeded;
+      return sandboxDbCache;
     }
     try {
       var parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== 'object') {
         var freshEmpty = seedSandboxDb();
         saveSandboxDb(freshEmpty);
-        return freshEmpty;
+        return sandboxDbCache;
       }
       var defaults = seedSandboxDb();
       var dirty = false;
@@ -633,15 +656,17 @@
       }
 
       if (dirty) saveSandboxDb(parsed);
-      return parsed;
+      else sandboxDbCache = parsed;
+      return sandboxDbCache;
     } catch (e) {
       var fresh = seedSandboxDb();
       saveSandboxDb(fresh);
-      return fresh;
+      return sandboxDbCache;
     }
   }
 
   function saveSandboxDb(db) {
+    sandboxDbCache = db;
     safeStorageSet(STORAGE_DB, JSON.stringify(db));
   }
 
@@ -1827,55 +1852,101 @@
   async function callApi(action, payload) {
     var gasUrl = getGasUrl();
     var token = getToken();
-
-    if (!gasUrl) {
-      return sandboxExecute(action, token, payload);
-    }
-
     var core = root.RGCrmCore;
-    if (core && core.validateGasUrl) {
-      var check = core.validateGasUrl(gasUrl);
-      if (!check.valid) {
-        return {
-          success: false,
-          message: check.message,
-          data: null,
-          error: 'INVALID_GAS_URL'
-        };
+
+    var policy = (core && core.getApiCachePolicy) ? core.getApiCachePolicy(action) : { cacheable: false, ttlMs: 0, scope: '' };
+    var skipCache = Boolean(payload && (payload.forceRefresh || payload.logExport));
+    var cacheKey = (policy.cacheable && core && core.buildApiCacheKey)
+      ? core.buildApiCacheKey(gasUrl, token, action, payload)
+      : '';
+
+    if (policy.cacheable && !skipCache && cacheKey && apiResponseCache[cacheKey]) {
+      var cachedEntry = apiResponseCache[cacheKey];
+      if (Date.now() < cachedEntry.expiresAt) {
+        return cachedEntry.response;
       }
+      delete apiResponseCache[cacheKey];
     }
 
-    try {
-      var opts = (core && core.buildGasFetchOptions)
-        ? core.buildGasFetchOptions(action, token, payload)
-        : {
-            method: 'POST',
-            redirect: 'follow',
-            credentials: 'omit',
-            cache: 'no-store',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: action, token: token, payload: payload || {} })
+    if (policy.cacheable && !skipCache && cacheKey && inFlightRequests[cacheKey]) {
+      return inFlightRequests[cacheKey];
+    }
+
+    var executeCall = async function () {
+      var parsed;
+      if (!gasUrl) {
+        parsed = sandboxExecute(action, token, payload);
+      } else {
+        if (core && core.validateGasUrl) {
+          var check = core.validateGasUrl(gasUrl);
+          if (!check.valid) {
+            return {
+              success: false,
+              message: check.message,
+              data: null,
+              error: 'INVALID_GAS_URL'
+            };
+          }
+        }
+
+        try {
+          var opts = (core && core.buildGasFetchOptions)
+            ? core.buildGasFetchOptions(action, token, payload)
+            : {
+                method: 'POST',
+                redirect: 'follow',
+                credentials: 'omit',
+                cache: 'no-store',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({ action: action, token: token, payload: payload || {} })
+              };
+
+          var response = await fetch(gasUrl, opts);
+          var text = await response.text();
+          parsed = (core && core.parseGasResponseText)
+            ? core.parseGasResponseText(text, response.status)
+            : JSON.parse(text);
+
+          if (!parsed.success && String(parsed.error || '').indexOf('UNAUTHORIZED') === 0) {
+            setToken('');
+            document.dispatchEvent(new CustomEvent('rg:unauthorized'));
+          }
+        } catch (err) {
+          return {
+            success: false,
+            message: 'تعذر الاتصال بخادم Google Apps Script. تأكد من صحة رابط /exec واتصالك بالإنترنت وصلاحيات النشر (Anyone): ' + (err.message || err),
+            data: null,
+            error: err.message || 'NETWORK_ERROR'
           };
+        }
+      }
 
-      var response = await fetch(gasUrl, opts);
-      var text = await response.text();
-      var parsed = (core && core.parseGasResponseText)
-        ? core.parseGasResponseText(text, response.status)
-        : JSON.parse(text);
-
-      if (!parsed.success && String(parsed.error || '').indexOf('UNAUTHORIZED') === 0) {
-        setToken('');
-        document.dispatchEvent(new CustomEvent('rg:unauthorized'));
+      if (parsed && parsed.success) {
+        if (policy.cacheable && cacheKey && !skipCache) {
+          apiResponseCache[cacheKey] = {
+            scope: policy.scope,
+            expiresAt: Date.now() + policy.ttlMs,
+            response: parsed
+          };
+        } else if (core && core.getCacheInvalidationScopes) {
+          var invScopes = core.getCacheInvalidationScopes(action);
+          if (invScopes.length > 0) {
+            clearCache(invScopes);
+          }
+        }
       }
       return parsed;
-    } catch (err) {
-      return {
-        success: false,
-        message: 'تعذر الاتصال بخادم Google Apps Script. تأكد من صحة رابط /exec واتصالك بالإنترنت وصلاحيات النشر (Anyone): ' + (err.message || err),
-        data: null,
-        error: err.message || 'NETWORK_ERROR'
-      };
+    };
+
+    if (policy.cacheable && !skipCache && cacheKey) {
+      var promise = executeCall().finally(function () {
+        delete inFlightRequests[cacheKey];
+      });
+      inFlightRequests[cacheKey] = promise;
+      return promise;
     }
+
+    return executeCall();
   }
 
   async function pingGasUrl(url) {
@@ -1924,6 +1995,7 @@
     getToken: getToken,
     setToken: setToken,
     isLiveMode: isLiveMode,
+    clearCache: clearCache,
     callApi: callApi,
     pingGasUrl: pingGasUrl
   };

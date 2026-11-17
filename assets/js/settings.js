@@ -55,13 +55,13 @@
         '</div>' +
         '<div id="gas-ping-result" class="hidden" style="margin-top:10px;"></div>' +
         '<details style="margin-top:12px;padding:10px 12px;border:1px solid var(--border-hairline);border-radius:var(--radius-sm);background:var(--bg-surface-subtle);">' +
-          '<summary style="cursor:pointer;font-weight:700;font-size:13px;">خطوات الربط السريع مع Google Sheets & Google Apps Script</summary>' +
+          '<summary style="cursor:pointer;font-weight:700;font-size:13px;">خطوات الربط السريع مع Rental Gate API وGoogle Apps Script</summary>' +
           '<ol style="margin:10px 0 0;padding-inline-start:20px;font-size:12.5px;line-height:1.8;color:var(--text-secondary);">' +
-            '<li>أنشئ Google Sheet جديد وانسخ معرفه (<span class="mono">SPREADSHEET_ID</span>) من الرابط.</li>' +
-            '<li>افتح <strong>Extensions → Apps Script</strong> وأنشئ الملفات (<span class="mono">Code.gs, Utils.gs, Database.gs, Auth.gs, Reservations.gs, FollowUps.gs, Problems.gs, Employees.gs, Reports.gs, Settings.gs</span>).</li>' +
-            '<li>من <strong>Project Settings → Script Properties</strong> أضف <span class="mono">SPREADSHEET_ID</span> و <span class="mono">RG_TOKEN</span>.</li>' +
-            '<li>شغّل الدالة <span class="mono">setupRentalGateDatabase()</span> مرة واحدة لإنشاء الـ 12 تبويبًا وحساب المدير وتفعيل المزامنة التلقائية كل 12 ساعة.</li>' +
-            '<li>اضغط <strong>Deploy → New deployment → Web app</strong> (Execute as: <strong>Me</strong>, Who has access: <strong>Anyone</strong>) ثم الصق رابط <span class="mono">/exec</span> أعلاه.</li>' +
+            '<li>أنشئ مشروع Apps Script (أو من داخل Google Sheet عبر <strong>Extensions → Apps Script</strong>) وارفع ملفات مجلد <span class="mono">google-apps-script/</span> الـ 16 ملف <span class="mono">.gs</span> + <span class="mono">appsscript.json</span>.</li>' +
+            '<li>من <strong>Project Settings → Script Properties</strong> أضف <span class="mono">RG_TOKEN</span> (رمز Rental Gate Bearer Token)، ويمكنك اختياريًا إضافة <span class="mono">SPREADSHEET_ID</span> (وإلا سيتم إنشاؤه تلقائيًا).</li>' +
+            '<li>شغّل الدالة <span class="mono">setupRentalGateDatabase()</span> مرة واحدة ووافق على الصلاحيات لإنشاء التبويبات وحساب المدير (<span class="mono">admin / Admin@123</span>) وتفعيل السحب التلقائي كل 12 ساعة.</li>' +
+            '<li>اضغط <strong>Deploy → New deployment → Web app</strong> (Execute as: <strong>Me</strong> · Who has access: <strong>Anyone</strong>) وانسخ رابط <span class="mono">/exec</span> والصقه أعلاه ثم اضغط «حفظ الرابط».</li>' +
+            '<li>بعد تسجيل الدخول بالخادم الفعلي، افتح هذه الصفحة واضغط <strong>اختبار الاتصال</strong> ثم <strong>سحب الحجوزات الآن</strong> (أو زر «سحب الحجوزات» من صفحة الحجوزات).</li>' +
           '</ol>' +
         '</details>' +
       '</div>' +

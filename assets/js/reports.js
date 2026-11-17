@@ -15,10 +15,28 @@
     });
   }
 
-  function exportExcelWorkbook(sheetsConfig, filename) {
+  async function ensureXlsxLoaded() {
+    if (root.XLSX) return;
+    if (root.RGLoadVendorScript) {
+      await root.RGLoadVendorScript('assets/vendor/xlsx.full.min.js');
+    }
     if (!root.XLSX) {
       throw new Error('مكتبة SheetJS غير محملة.');
     }
+  }
+
+  async function ensureJsPdfLoaded() {
+    if (root.jspdf && root.jspdf.jsPDF) return;
+    if (root.RGLoadVendorScript) {
+      await root.RGLoadVendorScript('assets/vendor/jspdf.umd.min.js');
+    }
+    if (!root.jspdf || !root.jspdf.jsPDF) {
+      throw new Error('مكتبة jsPDF غير محملة.');
+    }
+  }
+
+  async function exportExcelWorkbook(sheetsConfig, filename) {
+    await ensureXlsxLoaded();
     var wb = root.XLSX.utils.book_new();
     sheetsConfig.forEach(function (cfg) {
       var rows = cfg.rows || [];
@@ -46,9 +64,7 @@
   }
 
   async function exportArabicPdfDocument(options) {
-    if (!root.jspdf || !root.jspdf.jsPDF) {
-      throw new Error('مكتبة jsPDF غير محملة.');
-    }
+    await ensureJsPdfLoaded();
 
     var paperSize = options.paperSize || 'a4';
     var orientation = options.orientation || 'landscape';
@@ -534,7 +550,7 @@
           });
         }
       }
-      exportExcelWorkbook(sheets, 'rental-gate-' + state.reportType + '.xlsx');
+      await exportExcelWorkbook(sheets, 'rental-gate-' + state.reportType + '.xlsx');
       ctx.toast('تم تصدير ملف Excel بنجاح.');
       modalRoot.innerHTML = '';
     });

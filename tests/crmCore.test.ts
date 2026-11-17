@@ -285,4 +285,32 @@ test('validateGasUrl, extractGasUrlFromSearch, buildGasFetchOptions, and parseGa
   assert.equal(okResp.data.token, 'SES_1');
 });
 
+test('API cache policy, stable cache key generation, and mutation invalidation scopes', () => {
+  assert.equal(core.getApiCachePolicy('getEmployees').cacheable, true);
+  assert.equal(core.getApiCachePolicy('getReservations').cacheable, true);
+  assert.equal(core.getApiCachePolicy('pullReservations').cacheable, false);
+  assert.equal(core.getApiCachePolicy('login').cacheable, false);
 
+  const key1 = core.buildApiCacheKey('https://script.google.com/macros/s/abc/exec', 'TOK_1', 'getReservations', {
+    page: 1,
+    search: 'RG',
+    visibleCols: ['reservationNumber', 'customerName']
+  });
+  const key2 = core.buildApiCacheKey('https://script.google.com/macros/s/abc/exec', 'TOK_1', 'getReservations', {
+    search: 'RG',
+    page: 1,
+    visibleCols: ['reservationNumber']
+  });
+  assert.equal(key1, key2);
+
+  const keyOtherUser = core.buildApiCacheKey('https://script.google.com/macros/s/abc/exec', 'TOK_2', 'getReservations', {
+    page: 1,
+    search: 'RG'
+  });
+  assert.notEqual(key1, keyOtherUser);
+
+  const pullScopes = core.getCacheInvalidationScopes('pullReservations');
+  assert.equal(pullScopes.includes('reservations'), true);
+  assert.equal(pullScopes.includes('dashboard'), true);
+  assert.equal(core.getCacheInvalidationScopes('login').includes('*'), true);
+});

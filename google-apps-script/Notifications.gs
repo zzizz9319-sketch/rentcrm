@@ -18,7 +18,7 @@ function createNotification(recipientEmployeeId, recipientRole, type, title, mes
 }
 
 function getNotifications(session) {
-  var all = readAllRecords(RG_SHEETS.NOTIFICATIONS, true);
+  var all = readAllRecords(RG_SHEETS.NOTIFICATIONS, false);
   var mine = all.filter(function (n) {
     return n.recipientEmployeeId === session.employeeId ||
       (!n.recipientEmployeeId && n.recipientRole === session.role);

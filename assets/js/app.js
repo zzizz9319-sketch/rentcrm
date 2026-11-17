@@ -7,12 +7,51 @@
   var PREFS_KEY = 'rg_crm_user_prefs';
   var VALID_ROUTES = ['dashboard', 'reservations', 'my-followups', 'team-followups', 'problems', 'reports', 'employees', 'activity', 'settings'];
 
+  var vendorScriptPromises = {};
+
   function assetUrl(rel) {
     if (root.RGCrmCore && root.RGCrmCore.resolveAssetUrl) {
       return root.RGCrmCore.resolveAssetUrl(rel, root.__RG_BASE_URL__);
     }
     return './' + String(rel || '').replace(/^\/+/, '');
   }
+
+  function loadVendorScript(rel) {
+    var url = assetUrl(rel);
+    if (vendorScriptPromises[url]) return vendorScriptPromises[url];
+    vendorScriptPromises[url] = new Promise(function (resolve, reject) {
+      var existing = document.querySelector('script[data-rg-vendor="' + rel + '"]');
+      if (existing) {
+        if (existing.getAttribute('data-loaded') === 'true') {
+          resolve();
+          return;
+        }
+        existing.addEventListener('load', function () { resolve(); }, { once: true });
+        existing.addEventListener('error', function () {
+          delete vendorScriptPromises[url];
+          reject(new Error('تعذر تحميل المكتبة: ' + rel));
+        }, { once: true });
+        return;
+      }
+      var s = document.createElement('script');
+      s.src = url;
+      s.async = true;
+      s.setAttribute('data-rg-vendor', rel);
+      s.onload = function () {
+        s.setAttribute('data-loaded', 'true');
+        resolve();
+      };
+      s.onerror = function () {
+        delete vendorScriptPromises[url];
+        if (s.parentNode) s.parentNode.removeChild(s);
+        reject(new Error('تعذر تحميل المكتبة: ' + rel));
+      };
+      document.head.appendChild(s);
+    });
+    return vendorScriptPromises[url];
+  }
+
+  root.RGLoadVendorScript = loadVendorScript;
 
   function resolveInitialRoute() {
     var redirected = '';
@@ -695,8 +734,10 @@
       return;
     }
     renderAppShell(user);
-    await refreshNotifications();
-    await renderRoute();
+    await Promise.all([
+      renderRoute(),
+      refreshNotifications()
+    ]);
   }
 
   document.addEventListener('rg:unauthorized', function () {
