@@ -307,12 +307,9 @@
     var state = ctx.state.reports || { reportType: 'all_reservations', rows: [] };
     ctx.state.reports = state;
 
-    var [empRes, resMeta] = await Promise.all([
-      root.RGApi.callApi('getEmployees', {}),
-      root.RGApi.callApi('getReservations', { page: 1, pageSize: 5 })
-    ]);
+    var empRes = await root.RGApi.callApi('getEmployees', {});
     var employees = (empRes.success && empRes.data.items) || [];
-    var facets = (resMeta.success && resMeta.data.facets) || { companies: [], branches: [] };
+    var facets = { companies: [], branches: [] };
 
     container.innerHTML =
       '<div class="surface-card">' +
@@ -335,12 +332,8 @@
           '<select class="select" id="rep-emp" aria-label="' + t('employee') + '"><option value="">' + t('all_employees') + '</option>' +
             employees.map(function (e) { return '<option value="' + e.id + '">' + e.name + '</option>'; }).join('') +
           '</select>' +
-          '<select class="select" id="rep-company" aria-label="' + t('company') + '"><option value="">' + t('all_companies') + '</option>' +
-            facets.companies.map(function (c) { return '<option value="' + c + '">' + c + '</option>'; }).join('') +
-          '</select>' +
-          '<select class="select" id="rep-branch" aria-label="' + t('branch') + '"><option value="">' + t('all_branches') + '</option>' +
-            facets.branches.map(function (b) { return '<option value="' + b + '">' + b + '</option>'; }).join('') +
-          '</select>' +
+          '<select class="select" id="rep-company" aria-label="' + t('company') + '"><option value="">' + t('all_companies') + '</option></select>' +
+          '<select class="select" id="rep-branch" aria-label="' + t('branch') + '"><option value="">' + t('all_branches') + '</option></select>' +
           '<button type="button" class="btn btn-accent" id="rep-run-btn">' + t('generate_report') + '</button>' +
         '</div>' +
         '<div id="report-charts-wrap" class="charts-grid" style="margin-bottom:16px;">' +
@@ -349,6 +342,25 @@
         '</div>' +
         '<div id="report-preview-wrap"></div>' +
       '</div>';
+
+    function populateFacetSelects(nextFacets) {
+      if (!nextFacets) return;
+      facets = nextFacets;
+      var compEl = document.getElementById('rep-company');
+      var brEl = document.getElementById('rep-branch');
+      if (compEl && compEl.options.length <= 1 && Array.isArray(facets.companies)) {
+        var prevC = compEl.value;
+        compEl.innerHTML = '<option value="">' + t('all_companies') + '</option>' +
+          facets.companies.map(function (c) { return '<option value="' + c + '">' + c + '</option>'; }).join('');
+        compEl.value = prevC;
+      }
+      if (brEl && brEl.options.length <= 1 && Array.isArray(facets.branches)) {
+        var prevB = brEl.value;
+        brEl.innerHTML = '<option value="">' + t('all_branches') + '</option>' +
+          facets.branches.map(function (b) { return '<option value="' + b + '">' + b + '</option>'; }).join('');
+        brEl.value = prevB;
+      }
+    }
 
     async function loadPreview(logExport) {
       var params = {
@@ -362,9 +374,13 @@
       };
       var r = await root.RGApi.callApi('getReports', params);
       var wrap = document.getElementById('report-preview-wrap');
+      if (!wrap) return;
       if (!r.success) {
         wrap.innerHTML = '<div class="form-error">' + r.message + '</div>';
         return;
+      }
+      if (r.data && r.data.facets) {
+        populateFacetSelects(r.data.facets);
       }
       state.rows = r.data.rows || [];
       if (state.rows.length === 0) {
@@ -448,7 +464,10 @@
     container.querySelectorAll('[data-rtype]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         state.reportType = btn.getAttribute('data-rtype');
-        render(container, ctx);
+        container.querySelectorAll('[data-rtype]').forEach(function (el) {
+          el.classList.toggle('active', el === btn);
+        });
+        loadPreview(false);
       });
     });
 

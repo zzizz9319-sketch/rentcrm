@@ -54,14 +54,14 @@ function fetchAllRentalGatePages(url, token) {
     } else if (body && body.data) {
       if (Array.isArray(body.data)) {
         rows = body.data;
-        lastPage = toNumber((body.meta && body.meta.last_page) || body.last_page, 1);
+        lastPage = toNumber((body.meta && body.meta.last_page) || (body.pagination && body.pagination.last_page) || body.last_page, 1);
       } else if (Array.isArray(body.data.data)) {
         rows = body.data.data;
-        lastPage = toNumber(body.data.last_page || (body.data.meta && body.data.meta.last_page), 1);
+        lastPage = toNumber(body.data.last_page || (body.data.meta && body.data.meta.last_page) || (body.data.pagination && body.data.pagination.last_page), 1);
       }
     } else if (body && Array.isArray(body.items)) {
       rows = body.items;
-      lastPage = toNumber((body.meta && body.meta.last_page) || body.last_page, 1);
+      lastPage = toNumber((body.meta && body.meta.last_page) || (body.pagination && body.pagination.last_page) || body.last_page, 1);
     }
 
     for (var i = 0; i < rows.length; i++) {
@@ -75,6 +75,50 @@ function fetchAllRentalGatePages(url, token) {
   }
 
   return { items: allItems, pagesFetched: pagesFetched };
+}
+
+function saveApiToken(session, payload) {
+  requireApiAccess(session);
+  var p = payload || {};
+  var raw = normalizeStr(p.token || p.rgToken || p.rentalToken).replace(/^Bearer\s+/i, '');
+  if (!raw || raw.length < 16 || /\s/.test(raw)) {
+    throw new Error('صيغة التوكن غير صالحة. يرجى لصق التوكن كاملاً بدون مسافات.');
+  }
+
+  PropertiesService.getScriptProperties().setProperties({
+    RG_TOKEN: raw,
+    RENTAL_TOKEN: raw
+  });
+
+  logActivity(
+    session.user,
+    'تحديث توكن API',
+    'Settings',
+    'RG_TOKEN',
+    'تم ربط وحفظ RG_TOKEN وRENTAL_TOKEN في Script Properties'
+  );
+
+  var result = {
+    saved: true,
+    hasToken: true,
+    hasRgToken: true
+  };
+  if (toBool(p.testAfterSave)) {
+    result.connection = testRentalGateConnection(session);
+  }
+  return result;
+}
+
+function setupRentalGateTokens(token) {
+  var clean = normalizeStr(token).replace(/^Bearer\s+/i, '');
+  if (!clean) {
+    throw new Error('يرجى تمرير التوكن للدالة setupRentalGateTokens(token).');
+  }
+  PropertiesService.getScriptProperties().setProperties({
+    RG_TOKEN: clean,
+    RENTAL_TOKEN: clean
+  });
+  return { saved: true, keys: ['RG_TOKEN', 'RENTAL_TOKEN'] };
 }
 
 function testRentalGateConnection(session) {
@@ -341,16 +385,15 @@ function runRentalGateSyncInternal(actor) {
 
 function getSyncStatus(session) {
   requireApiAccess(session);
-  var logs = readAllRecords(RG_SHEETS.SYNC_LOG, true);
+  var logs = readAllRecords(RG_SHEETS.SYNC_LOG, false);
   logs.sort(function (a, b) {
     return String(b.startedAt).localeCompare(String(a.startedAt));
   });
-  var enabledRec = findRecordById(RG_SHEETS.SETTINGS, 'key', 'auto_sync_enabled');
-  var intervalRec = findRecordById(RG_SHEETS.SETTINGS, 'key', 'auto_sync_interval_hours');
+  var map = getSettingsMap_(false);
   return {
     hasToken: Boolean(getRgToken()),
-    autoSyncEnabled: enabledRec ? toBool(enabledRec.value) : true,
-    autoSyncIntervalHours: intervalRec ? toNumber(intervalRec.value, 12) : 12,
+    autoSyncEnabled: map.auto_sync_enabled !== undefined ? toBool(map.auto_sync_enabled) : true,
+    autoSyncIntervalHours: map.auto_sync_interval_hours ? toNumber(map.auto_sync_interval_hours, 12) : 12,
     lastSync: logs.length > 0 ? logs[0] : null,
     logs: logs.slice(0, 20)
   };

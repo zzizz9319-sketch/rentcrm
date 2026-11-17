@@ -45,6 +45,9 @@ function handleApiRequest(e, method) {
       case 'getMe':
         result = { user: session.user };
         break;
+      case 'getAppBootstrap':
+        result = getAppBootstrap(session, payload);
+        break;
       case 'getDashboard':
         result = getDashboard(session, payload);
         break;
@@ -143,6 +146,9 @@ function handleApiRequest(e, method) {
         break;
       case 'testConnection':
         result = testRentalGateConnection(session);
+        break;
+      case 'saveApiToken':
+        result = saveApiToken(session, payload);
         break;
       case 'getSyncStatus':
         result = getSyncStatus(session);

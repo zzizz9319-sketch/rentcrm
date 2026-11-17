@@ -176,14 +176,14 @@ function normalizeRolePresetsServer(rawPresets) {
 }
 
 function readRolePresetsSetting() {
-  var rec = findRecordById(RG_SHEETS.SETTINGS, 'key', 'job_role_presets');
-  var parsed = rec ? safeJsonParse(rec.value, RG_DEFAULT_ROLE_PRESETS) : RG_DEFAULT_ROLE_PRESETS;
+  var map = getSettingsMap_(false);
+  var parsed = map.job_role_presets ? safeJsonParse(map.job_role_presets, RG_DEFAULT_ROLE_PRESETS) : RG_DEFAULT_ROLE_PRESETS;
   return normalizeRolePresetsServer(parsed);
 }
 
 function readCustomPermissionsSetting() {
-  var rec = findRecordById(RG_SHEETS.SETTINGS, 'key', 'permissions_catalog_custom');
-  var parsed = rec ? safeJsonParse(rec.value, []) : [];
+  var map = getSettingsMap_(false);
+  var parsed = map.permissions_catalog_custom ? safeJsonParse(map.permissions_catalog_custom, []) : [];
   return Array.isArray(parsed) ? parsed : [];
 }
 

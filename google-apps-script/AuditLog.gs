@@ -20,7 +20,7 @@ function logActivity(user, actionType, entityType, entityId, details) {
 }
 
 function getActivityLogs(session, params) {
-  var logs = readAllRecords(RG_SHEETS.ACTIVITY_LOG, true);
+  var logs = readAllRecords(RG_SHEETS.ACTIVITY_LOG, false);
   var p = params || {};
   var userId = normalizeStr(p.userId);
   var actionType = normalizeStr(p.actionType);

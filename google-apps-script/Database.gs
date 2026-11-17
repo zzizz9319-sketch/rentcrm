@@ -85,8 +85,10 @@ var RG_SHEETS_SCHEMA = {
 
 var _rgSpreadsheetCache = null;
 var _rgVerifiedSheetsCache = {};
+var _rgRecordsCache = {};
 var RG_CACHE_CHUNK_SIZE = 75000;
 var RG_CACHE_MAX_CHUNKS = 12;
+var RG_CACHE_TTL_SECONDS = 300;
 
 function getSpreadsheet() {
   if (_rgSpreadsheetCache) return _rgSpreadsheetCache;
@@ -132,6 +134,9 @@ function getCacheKey(sheetName) {
 }
 
 function invalidateCache(sheetName) {
+  if (sheetName) {
+    delete _rgRecordsCache[sheetName];
+  }
   try {
     var base = getCacheKey(sheetName);
     var keys = [base, base + '_META'];
@@ -143,6 +148,7 @@ function invalidateCache(sheetName) {
 }
 
 function invalidateAllCaches() {
+  _rgRecordsCache = {};
   var names = Object.keys(RG_SHEETS_SCHEMA);
   for (var i = 0; i < names.length; i++) {
     invalidateCache(names[i]);
@@ -154,7 +160,7 @@ function putChunkedCache_(sheetName, serialized) {
     var cache = CacheService.getScriptCache();
     var base = getCacheKey(sheetName);
     if (serialized.length <= RG_CACHE_CHUNK_SIZE) {
-      cache.put(base, serialized, 180);
+      cache.put(base, serialized, RG_CACHE_TTL_SECONDS);
       return;
     }
     var totalChunks = Math.ceil(serialized.length / RG_CACHE_CHUNK_SIZE);
@@ -165,7 +171,7 @@ function putChunkedCache_(sheetName, serialized) {
       batch[base + '_' + i] = serialized.substring(i * RG_CACHE_CHUNK_SIZE, (i + 1) * RG_CACHE_CHUNK_SIZE);
     }
     cache.remove(base);
-    cache.putAll(batch, 180);
+    cache.putAll(batch, RG_CACHE_TTL_SECONDS);
   } catch (e) {}
 }
 
@@ -386,8 +392,12 @@ function initDatabase() {
 
 function readAllRecords(sheetName, skipCache) {
   if (!skipCache) {
+    if (_rgRecordsCache[sheetName]) {
+      return _rgRecordsCache[sheetName];
+    }
     var cachedRecords = getChunkedCache_(sheetName);
     if (cachedRecords) {
+      _rgRecordsCache[sheetName] = cachedRecords;
       return cachedRecords;
     }
   }
@@ -396,7 +406,10 @@ function readAllRecords(sheetName, skipCache) {
   var sheet = getSheetOrCreate(ss, sheetName);
   var lastRow = sheet.getLastRow();
   var lastCol = sheet.getLastColumn();
-  if (lastRow <= 1 || lastCol === 0) return [];
+  if (lastRow <= 1 || lastCol === 0) {
+    if (!skipCache) _rgRecordsCache[sheetName] = [];
+    return [];
+  }
 
   var values = sheet.getRange(1, 1, lastRow, lastCol).getValues();
   var fileHeaders = values[0];
@@ -421,15 +434,16 @@ function readAllRecords(sheetName, skipCache) {
   }
 
   if (!skipCache) {
+    var cachePayload = records;
+    if (sheetName === RG_SHEETS.RESERVATIONS) {
+      cachePayload = records.map(function (rec) {
+        var slim = Object.assign({}, rec);
+        delete slim.rawJson;
+        return slim;
+      });
+    }
+    _rgRecordsCache[sheetName] = cachePayload;
     try {
-      var cachePayload = records;
-      if (sheetName === RG_SHEETS.RESERVATIONS) {
-        cachePayload = records.map(function (rec) {
-          var slim = Object.assign({}, rec);
-          delete slim.rawJson;
-          return slim;
-        });
-      }
       putChunkedCache_(sheetName, JSON.stringify(cachePayload));
     } catch (e) {}
   }

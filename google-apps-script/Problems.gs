@@ -216,7 +216,7 @@ function updateProblem(session, payload) {
 
 function getProblems(session, params) {
   var pa = params || {};
-  var problems = readAllRecords(RG_SHEETS.PROBLEMS, true);
+  var problems = readAllRecords(RG_SHEETS.PROBLEMS, false);
   var updates = readAllRecords(RG_SHEETS.PROBLEM_UPDATES, false);
 
   var updatesByProblem = {};

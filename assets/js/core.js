@@ -864,22 +864,22 @@
   }
 
   var API_CACHE_POLICIES = {
-    getMe: { cacheable: true, ttlMs: 60000, scope: 'employees' },
-    getEmployees: { cacheable: true, ttlMs: 60000, scope: 'employees' },
-    getEmployeeDetails: { cacheable: true, ttlMs: 25000, scope: 'employees' },
-    getDashboard: { cacheable: true, ttlMs: 20000, scope: 'dashboard' },
-    getReservations: { cacheable: true, ttlMs: 20000, scope: 'reservations' },
-    getReservationDetails: { cacheable: true, ttlMs: 20000, scope: 'reservations' },
-    getMyFollowUps: { cacheable: true, ttlMs: 20000, scope: 'followUps' },
-    getTeamFollowUps: { cacheable: true, ttlMs: 20000, scope: 'followUps' },
-    getFollowUpHistory: { cacheable: true, ttlMs: 25000, scope: 'followUps' },
-    getProblems: { cacheable: true, ttlMs: 20000, scope: 'problems' },
-    getNotifications: { cacheable: true, ttlMs: 15000, scope: 'notifications' },
-    getActivityLogs: { cacheable: true, ttlMs: 20000, scope: 'activity' },
-    getReports: { cacheable: true, ttlMs: 20000, scope: 'reports' },
-    getSettings: { cacheable: true, ttlMs: 45000, scope: 'settings' },
-    getSyncStatus: { cacheable: true, ttlMs: 30000, scope: 'sync' },
-    getTriggerStatus: { cacheable: true, ttlMs: 30000, scope: 'sync' }
+    getMe: { cacheable: true, ttlMs: 300000, scope: 'employees' },
+    getEmployees: { cacheable: true, ttlMs: 300000, scope: 'employees' },
+    getEmployeeDetails: { cacheable: true, ttlMs: 60000, scope: 'employees' },
+    getDashboard: { cacheable: true, ttlMs: 60000, scope: 'dashboard' },
+    getReservations: { cacheable: true, ttlMs: 60000, scope: 'reservations' },
+    getReservationDetails: { cacheable: true, ttlMs: 60000, scope: 'reservations' },
+    getMyFollowUps: { cacheable: true, ttlMs: 60000, scope: 'followUps' },
+    getTeamFollowUps: { cacheable: true, ttlMs: 60000, scope: 'followUps' },
+    getFollowUpHistory: { cacheable: true, ttlMs: 60000, scope: 'followUps' },
+    getProblems: { cacheable: true, ttlMs: 60000, scope: 'problems' },
+    getNotifications: { cacheable: true, ttlMs: 30000, scope: 'notifications' },
+    getActivityLogs: { cacheable: true, ttlMs: 60000, scope: 'activity' },
+    getReports: { cacheable: true, ttlMs: 60000, scope: 'reports' },
+    getSettings: { cacheable: true, ttlMs: 300000, scope: 'settings' },
+    getSyncStatus: { cacheable: true, ttlMs: 60000, scope: 'sync' },
+    getTriggerStatus: { cacheable: true, ttlMs: 60000, scope: 'sync' }
   };
 
   var MUTATION_INVALIDATIONS = {
@@ -906,6 +906,7 @@
     markNotificationRead: ['notifications'],
     pullReservations: ['reservations', 'dashboard', 'employees', 'sync', 'activity', 'reports'],
     syncRentalGate: ['reservations', 'dashboard', 'employees', 'sync', 'activity', 'reports'],
+    saveApiToken: ['settings', 'sync', 'activity'],
     updateSettings: ['settings', 'sync', 'reservations', 'activity']
   };
 

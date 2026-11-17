@@ -286,10 +286,15 @@ test('validateGasUrl, extractGasUrlFromSearch, buildGasFetchOptions, and parseGa
 });
 
 test('API cache policy, stable cache key generation, and mutation invalidation scopes', () => {
-  assert.equal(core.getApiCachePolicy('getEmployees').cacheable, true);
-  assert.equal(core.getApiCachePolicy('getReservations').cacheable, true);
+  const empPolicy = core.getApiCachePolicy('getEmployees');
+  const resPolicy = core.getApiCachePolicy('getReservations');
+  assert.equal(empPolicy.cacheable, true);
+  assert.equal(empPolicy.ttlMs >= 300000, true);
+  assert.equal(resPolicy.cacheable, true);
+  assert.equal(resPolicy.ttlMs >= 60000, true);
   assert.equal(core.getApiCachePolicy('pullReservations').cacheable, false);
   assert.equal(core.getApiCachePolicy('login').cacheable, false);
+  assert.equal(core.getApiCachePolicy('saveApiToken').cacheable, false);
 
   const key1 = core.buildApiCacheKey('https://script.google.com/macros/s/abc/exec', 'TOK_1', 'getReservations', {
     page: 1,
@@ -313,4 +318,8 @@ test('API cache policy, stable cache key generation, and mutation invalidation s
   assert.equal(pullScopes.includes('reservations'), true);
   assert.equal(pullScopes.includes('dashboard'), true);
   assert.equal(core.getCacheInvalidationScopes('login').includes('*'), true);
+  const saveTokenScopes = core.getCacheInvalidationScopes('saveApiToken');
+  assert.equal(saveTokenScopes.includes('settings'), true);
+  assert.equal(saveTokenScopes.includes('sync'), true);
 });
+

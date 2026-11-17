@@ -134,7 +134,7 @@ function getReservationDetails(session, params) {
     return a.reservationId === reservation.id && a.status === 'active';
   });
 
-  var followUps = readAllRecords(RG_SHEETS.FOLLOWUPS, true).filter(function (f) {
+  var followUps = readAllRecords(RG_SHEETS.FOLLOWUPS, false).filter(function (f) {
     return f.reservationId === reservation.id;
   }).sort(function (a, b) {
     return String(b.createdAt).localeCompare(String(a.createdAt));
@@ -146,7 +146,7 @@ function getReservationDetails(session, params) {
     return String(b.changedAt).localeCompare(String(a.changedAt));
   });
 
-  var problems = readAllRecords(RG_SHEETS.PROBLEMS, true).filter(function (pr) {
+  var problems = readAllRecords(RG_SHEETS.PROBLEMS, false).filter(function (pr) {
     return pr.reservationId === reservation.id;
   });
 

@@ -57,6 +57,29 @@
     });
   }
 
+  function primeCache(action, payload, data) {
+    var core = root.RGCrmCore;
+    if (!core || !core.getApiCachePolicy || !core.buildApiCacheKey) return;
+    var policy = core.getApiCachePolicy(action);
+    if (!policy.cacheable) return;
+    var key = core.buildApiCacheKey(getGasUrl(), getToken(), action, payload || {});
+    apiResponseCache[key] = {
+      scope: policy.scope,
+      expiresAt: Date.now() + policy.ttlMs,
+      response: { success: true, message: '', data: data, error: null }
+    };
+  }
+
+  function hasCached(action, payload) {
+    var core = root.RGCrmCore;
+    if (!core || !core.getApiCachePolicy || !core.buildApiCacheKey) return false;
+    var policy = core.getApiCachePolicy(action);
+    if (!policy.cacheable) return false;
+    var key = core.buildApiCacheKey(getGasUrl(), getToken(), action, payload || {});
+    var entry = apiResponseCache[key];
+    return Boolean(entry && Date.now() < entry.expiresAt);
+  }
+
   function setGasUrl(url) {
     var clean = String(url || '').trim();
     safeStorageSet(STORAGE_GAS_URL, clean);
@@ -800,6 +823,23 @@
       }
       case 'getMe':
         return { success: true, message: '', data: { user: session.user }, error: null };
+
+      case 'getAppBootstrap': {
+        var bsDash = sandboxExecute('getDashboard', token, payload && payload.range ? payload : { range: '30d' });
+        var bsNotif = sandboxExecute('getNotifications', token, {});
+        var bsEmp = sandboxExecute('getEmployees', token, {});
+        return {
+          success: true,
+          message: '',
+          data: {
+            user: session.user,
+            dashboard: bsDash.success ? bsDash.data : null,
+            notifications: bsNotif.success ? bsNotif.data : { items: [], unreadCount: 0 },
+            employees: bsEmp.success ? bsEmp.data : { items: [], total: 0 }
+          },
+          error: null
+        };
+      }
 
       case 'getDashboard': {
         var rangeKey = payload.range || '30d';
@@ -1629,6 +1669,25 @@
         return { success: true, message: '', data: { updated: true }, error: null };
       }
 
+      case 'saveApiToken': {
+        if (!core.canAccessApi(session.user) || !core.canUserPerform(session.user, 'sync_data')) {
+          return { success: false, message: 'FORBIDDEN: صلاحيات API مخصصة للمدير العام والمشرف فقط.', data: null, error: 'FORBIDDEN' };
+        }
+        var rawTok = String((payload && (payload.token || payload.rgToken || payload.rentalToken)) || '').trim().replace(/^Bearer\s+/i, '');
+        if (!rawTok || rawTok.length < 16 || /\s/.test(rawTok)) {
+          return { success: false, message: 'صيغة التوكن غير صالحة. يرجى لصق التوكن كاملاً بدون مسافات.', data: null, error: 'VALIDATION' };
+        }
+        db.settings.sandbox_has_rg_token = true;
+        appendSandboxActivity(db, session.user, 'تحديث توكن API', 'Settings', 'RG_TOKEN', 'تم التحقق من صيغة التوكن في وضع المعاينة');
+        saveSandboxDb(db);
+        return {
+          success: true,
+          message: 'تم التحقق من صيغة التوكن في وضع المعاينة المحلية. عند ربط رابط Google Apps Script /exec سيتم حفظ RG_TOKEN وRENTAL_TOKEN على الخادم تلقائيًا.',
+          data: { saved: true, sandboxPreview: true, hasRgToken: true },
+          error: null
+        };
+      }
+
       case 'testConnection': {
         if (!core.canAccessApi(session.user) || !core.canUserPerform(session.user, 'sync_data')) {
           return { success: false, message: 'FORBIDDEN: صلاحيات API مخصصة للمدير العام والمشرف فقط.', data: null, error: 'FORBIDDEN' };
@@ -1636,7 +1695,7 @@
         return {
           success: true,
           message: 'وضع المعاينة المحلية (Sandbox): اربط رابط Google Apps Script /exec في الإعدادات للاتصال الفعلي بـ Rental Gate API.',
-          data: { connected: true, hasToken: false, mode: 'sandbox', checkedAt: new Date().toISOString() },
+          data: { connected: true, hasToken: Boolean(db.settings.sandbox_has_rg_token), mode: 'sandbox', checkedAt: new Date().toISOString() },
           error: null
         };
       }
@@ -1767,6 +1826,13 @@
           appendSandboxActivity(db, session.user, 'تصدير تقرير', 'Report', rType, 'تصدير تقرير: ' + rType);
           saveSandboxDb(db);
         }
+        var repCompanies = {};
+        var repBranches = {};
+        db.reservations.forEach(function (r) {
+          if (r.companyName) repCompanies[r.companyName] = true;
+          if (r.branchName) repBranches[r.branchName] = true;
+        });
+        var repFacets = { companies: Object.keys(repCompanies).sort(), branches: Object.keys(repBranches).sort() };
         var filteredRes = core.filterReservations(db.reservations, db.followUps, payload, {
           employeeId: session.employeeId,
           role: session.role,
@@ -1774,16 +1840,16 @@
           allowAgentViewAll: db.settings.allow_agent_view_all
         });
         if (rType === 'followups_log') {
-          return { success: true, message: '', data: { reportType: rType, rows: db.followUps }, error: null };
+          return { success: true, message: '', data: { reportType: rType, rows: db.followUps, facets: repFacets }, error: null };
         }
         if (rType === 'problems') {
-          return { success: true, message: '', data: { reportType: rType, rows: db.problems }, error: null };
+          return { success: true, message: '', data: { reportType: rType, rows: db.problems, facets: repFacets }, error: null };
         }
         if (rType === 'extensions') {
-          return { success: true, message: '', data: { reportType: rType, rows: db.extensions }, error: null };
+          return { success: true, message: '', data: { reportType: rType, rows: db.extensions, facets: repFacets }, error: null };
         }
         if (rType === 'unfollowed') {
-          return { success: true, message: '', data: { reportType: rType, rows: filteredRes.filter(function (r) { return !r.isFollowed; }) }, error: null };
+          return { success: true, message: '', data: { reportType: rType, rows: filteredRes.filter(function (r) { return !r.isFollowed; }), facets: repFacets }, error: null };
         }
         if (rType === 'employee_performance') {
           var perf = db.employees.map(function (emp) {
@@ -1797,9 +1863,9 @@
               lastActivity: emp.lastActivity
             };
           });
-          return { success: true, message: '', data: { reportType: rType, rows: perf }, error: null };
+          return { success: true, message: '', data: { reportType: rType, rows: perf, facets: repFacets }, error: null };
         }
-        return { success: true, message: '', data: { reportType: rType, rows: filteredRes }, error: null };
+        return { success: true, message: '', data: { reportType: rType, rows: filteredRes, facets: repFacets }, error: null };
       }
 
       case 'getSettings': {
@@ -1812,7 +1878,7 @@
           data: Object.assign({}, db.settings, {
             auto_sync_enabled: db.settings.auto_sync_enabled !== false,
             auto_sync_interval_hours: Number(db.settings.auto_sync_interval_hours || 12),
-            hasRgToken: false
+            hasRgToken: Boolean(db.settings.sandbox_has_rg_token)
           }),
           error: null
         };
@@ -1996,6 +2062,8 @@
     setToken: setToken,
     isLiveMode: isLiveMode,
     clearCache: clearCache,
+    primeCache: primeCache,
+    hasCached: hasCached,
     callApi: callApi,
     pingGasUrl: pingGasUrl
   };

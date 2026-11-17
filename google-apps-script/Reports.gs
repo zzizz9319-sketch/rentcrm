@@ -22,7 +22,11 @@ function getReports(session, params) {
   var followedSet = {};
   for (var f = 0; f < followUps.length; f++) followedSet[followUps[f].reservationId] = true;
 
+  var companiesMap = {};
+  var branchesMap = {};
   var filteredRes = reservations.filter(function (r) {
+    if (r.companyName) companiesMap[r.companyName] = true;
+    if (r.branchName) branchesMap[r.branchName] = true;
     if (dateFrom && r.startDate < dateFrom) return false;
     if (dateTo && r.startDate > dateTo) return false;
     if (company && r.companyName !== company) return false;
@@ -36,6 +40,11 @@ function getReports(session, params) {
     return true;
   });
 
+  var facets = {
+    companies: Object.keys(companiesMap).sort(),
+    branches: Object.keys(branchesMap).sort()
+  };
+
   if (toBool(p.logExport)) {
     logActivity(session.user, 'تصدير تقرير', 'Report', reportType, 'تصدير تقرير: ' + reportType);
   }
@@ -48,7 +57,7 @@ function getReports(session, params) {
       if (status && x.status !== status) return false;
       return true;
     });
-    return { reportType: reportType, rows: fuRows };
+    return { reportType: reportType, rows: fuRows, facets: facets };
   }
 
   if (reportType === 'problems') {
@@ -58,17 +67,18 @@ function getReports(session, params) {
       if (employeeId && pr.assignedEmployeeIds.indexOf(employeeId) === -1) return false;
       return true;
     });
-    return { reportType: reportType, rows: prRows };
+    return { reportType: reportType, rows: prRows, facets: facets };
   }
 
   if (reportType === 'extensions') {
-    return { reportType: reportType, rows: extensions };
+    return { reportType: reportType, rows: extensions, facets: facets };
   }
 
   if (reportType === 'unfollowed') {
     return {
       reportType: reportType,
-      rows: filteredRes.filter(function (r) { return !followedSet[r.id]; })
+      rows: filteredRes.filter(function (r) { return !followedSet[r.id]; }),
+      facets: facets
     };
   }
 
@@ -91,21 +101,21 @@ function getReports(session, params) {
         lastActivity: emp.lastActivity
       };
     });
-    return { reportType: reportType, rows: perf };
+    return { reportType: reportType, rows: perf, facets: facets };
   }
 
   if (reportType === 'sync_log') {
-    var syncRows = readAllRecords(RG_SHEETS.SYNC_LOG, true);
+    var syncRows = readAllRecords(RG_SHEETS.SYNC_LOG, false);
     syncRows.sort(function (a, b) {
       return String(b.startedAt).localeCompare(String(a.startedAt));
     });
-    return { reportType: reportType, rows: syncRows };
+    return { reportType: reportType, rows: syncRows, facets: facets };
   }
 
   if (reportType === 'activity_log') {
     var logRes = getActivityLogs(session, { userId: employeeId, date: dateFrom });
-    return { reportType: reportType, rows: logRes.items };
+    return { reportType: reportType, rows: logRes.items, facets: facets };
   }
 
-  return { reportType: reportType, rows: filteredRes };
+  return { reportType: reportType, rows: filteredRes, facets: facets };
 }

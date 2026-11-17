@@ -3,7 +3,7 @@
  */
 
 function getEmployees(session) {
-  var employees = readAllRecords(RG_SHEETS.EMPLOYEES, true);
+  var employees = readAllRecords(RG_SHEETS.EMPLOYEES, false);
   var reservations = readAllRecords(RG_SHEETS.RESERVATIONS, false);
   var followUps = readAllRecords(RG_SHEETS.FOLLOWUPS, false);
   var problems = readAllRecords(RG_SHEETS.PROBLEMS, false);
@@ -58,8 +58,8 @@ function getEmployeeDetails(session, params) {
   if (!employee) throw new Error('لم يتم العثور على الموظف المطلوب.');
 
   var reservations = readAllRecords(RG_SHEETS.RESERVATIONS, false);
-  var followUps = readAllRecords(RG_SHEETS.FOLLOWUPS, true);
-  var problems = readAllRecords(RG_SHEETS.PROBLEMS, true);
+  var followUps = readAllRecords(RG_SHEETS.FOLLOWUPS, false);
+  var problems = readAllRecords(RG_SHEETS.PROBLEMS, false);
 
   var empFollowUps = followUps.filter(function (f) {
     return f.employeeId === employeeId;

@@ -77,10 +77,21 @@
             '</div>' +
           '</div>' +
           '<div class="detail-summary-grid" style="margin-bottom:16px;">' +
-            '<div class="detail-kv"><span class="detail-k">حالة الاتصال</span><span class="detail-v" id="sync-conn-status">' + (root.RGApi.isLiveMode() ? (settings.hasRgToken ? 'RG_TOKEN مضبوط في Apps Script' : 'تحقق من RG_TOKEN في Script Properties') : 'وضع المعاينة المحلية') + '</span></div>' +
+            '<div class="detail-kv"><span class="detail-k">حالة الاتصال</span><span class="detail-v" id="sync-conn-status">' + (root.RGApi.isLiveMode() ? (settings.hasRgToken ? 'RG_TOKEN مضبوط في Apps Script' : 'تحقق من RG_TOKEN في Script Properties') : (settings.hasRgToken ? 'تم التحقق من صيغة التوكن (وضع المعاينة)' : 'وضع المعاينة المحلية')) + '</span></div>' +
             '<div class="detail-kv"><span class="detail-k">جدولة التحديث التلقائي</span><span class="detail-v" id="sync-auto-badge">' + (autoSyncEnabled ? ('مفعل — كل ' + autoSyncHours + ' ساعة') : 'متوقف حاليًا') + '</span></div>' +
             '<div class="detail-kv"><span class="detail-k">آخر تاريخ سحب</span><span class="detail-v mono">' + (lastSync ? String(lastSync.finishedAt).replace('T', ' ').substring(0, 19) : 'لم يتم السحب بعد') + '</span></div>' +
             '<div class="detail-kv"><span class="detail-k">الحجوزات المستوردة / المحدثة / التمديدات</span><span class="detail-v tabular-nums">' + (lastSync ? (lastSync.importedCount + ' مستورد · ' + lastSync.updatedCount + ' محدث · ' + lastSync.extensionsCount + ' تمديد') : '0 / 0 / 0') + '</span></div>' +
+          '</div>' +
+          '<div style="margin-bottom:16px;padding:12px 14px;border:1px solid var(--border-hairline);border-radius:var(--radius-sm);background:var(--bg-surface-subtle);">' +
+            '<label class="form-label" for="set-rg-token">ربط / تحديث توكن Rental Gate (RG_TOKEN / RENTAL_TOKEN)</label>' +
+            '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;">' +
+              '<div class="password-field-wrap" style="flex:1;min-width:240px;">' +
+                '<input type="password" class="input mono" id="set-rg-token" dir="ltr" autocomplete="off" spellcheck="false" placeholder="الصق Bearer Token هنا ليُحفظ في Script Properties (RG_TOKEN & RENTAL_TOKEN)">' +
+                '<button type="button" class="password-toggle-btn" id="toggle-rg-token" aria-label="إظهار التوكن">إظهار</button>' +
+              '</div>' +
+              '<button type="button" class="btn btn-primary" id="btn-save-rg-token">حفظ التوكن في Apps Script</button>' +
+            '</div>' +
+            '<div style="font-size:11.5px;color:var(--text-muted);margin-top:6px;">يُحفظ التوكن بأمان داخل Script Properties في Google Apps Script ولا يظهر للمتصفح أو في ملفات الموقع العامة.</div>' +
           '</div>' +
           '<div id="sync-action-msg" class="hidden" style="margin-bottom:14px;"></div>' +
           '<h3 style="margin:0 0 10px;font-size:14.5px;">سجل عمليات السحب (SyncLog)</h3>' +
@@ -171,6 +182,51 @@
       out.className = res.success ? 'form-success' : 'form-error';
       out.textContent = res.message || (res.success ? 'الاتصال ناجح!' : 'فشل الاتصال.');
     });
+
+    var rgTokenInput = document.getElementById('set-rg-token');
+    var toggleRgTokenBtn = document.getElementById('toggle-rg-token');
+    if (rgTokenInput && toggleRgTokenBtn) {
+      toggleRgTokenBtn.addEventListener('click', function () {
+        var nextType = rgTokenInput.type === 'password' ? 'text' : 'password';
+        rgTokenInput.type = nextType;
+        toggleRgTokenBtn.textContent = nextType === 'text' ? 'إخفاء' : 'إظهار';
+      });
+    }
+
+    var saveRgTokenBtn = document.getElementById('btn-save-rg-token');
+    if (saveRgTokenBtn) {
+      saveRgTokenBtn.addEventListener('click', async function () {
+        var inp = document.getElementById('set-rg-token');
+        var msg = document.getElementById('sync-action-msg');
+        var raw = inp ? inp.value.trim() : '';
+        if (!raw) {
+          msg.className = 'form-error';
+          msg.textContent = 'يرجى لصق التوكن أولاً ثم الضغط على حفظ.';
+          return;
+        }
+        saveRgTokenBtn.disabled = true;
+        saveRgTokenBtn.textContent = 'جاري الحفظ...';
+        var res = await root.RGApi.callApi('saveApiToken', { token: raw, testAfterSave: root.RGApi.isLiveMode() });
+        saveRgTokenBtn.disabled = false;
+        saveRgTokenBtn.textContent = 'حفظ التوكن في Apps Script';
+        if (res.success) {
+          if (inp) inp.value = '';
+          var connOk = res.data && res.data.connection ? res.data.connection.connected : null;
+          var connStatus = document.getElementById('sync-conn-status');
+          if (connStatus) {
+            connStatus.textContent = connOk === true
+              ? 'متصل بنجاح (RG_TOKEN & RENTAL_TOKEN محفوظان)'
+              : 'تم حفظ RG_TOKEN & RENTAL_TOKEN';
+          }
+          msg.className = connOk === false ? 'form-error' : 'form-success';
+          msg.textContent = (res.data && res.data.connection && res.data.connection.message) || res.message || 'تم حفظ التوكن بنجاح.';
+          ctx.toast('تم حفظ التوكن بنجاح.');
+        } else {
+          msg.className = 'form-error';
+          msg.textContent = res.message || 'تعذر حفظ التوكن.';
+        }
+      });
+    }
 
     var testRgBtn = document.getElementById('btn-test-rg');
     if (testRgBtn) {

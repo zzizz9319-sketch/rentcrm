@@ -377,7 +377,7 @@ function updateFollowUp(session, payload) {
 }
 
 function getMyFollowUps(session, params) {
-  var followUps = readAllRecords(RG_SHEETS.FOLLOWUPS, true).filter(function (f) {
+  var followUps = readAllRecords(RG_SHEETS.FOLLOWUPS, false).filter(function (f) {
     return f.employeeId === session.employeeId;
   });
   followUps.sort(function (a, b) {
@@ -413,7 +413,7 @@ function getMyFollowUps(session, params) {
 
 function getTeamFollowUps(session, params) {
   var p = params || {};
-  var followUps = readAllRecords(RG_SHEETS.FOLLOWUPS, true);
+  var followUps = readAllRecords(RG_SHEETS.FOLLOWUPS, false);
   var filterEmp = normalizeStr(p.employeeId);
   var filterStatus = normalizeStr(p.status);
   var filterDate = normalizeStr(p.date);
@@ -436,7 +436,7 @@ function getFollowUpHistory(session, params) {
   var p = params || {};
   var reservationId = normalizeStr(p.reservationId);
   var followUpId = normalizeStr(p.followUpId);
-  var rows = readAllRecords(RG_SHEETS.FOLLOWUP_HISTORY, true).filter(function (h) {
+  var rows = readAllRecords(RG_SHEETS.FOLLOWUP_HISTORY, false).filter(function (h) {
     if (reservationId && h.reservationId !== reservationId) return false;
     if (followUpId && h.followUpId !== followUpId) return false;
     return true;

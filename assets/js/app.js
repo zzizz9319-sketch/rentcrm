@@ -77,6 +77,7 @@
     prefs: Object.assign({ lang: 'ar', theme: 'light', sidebarCollapsed: false }, JSON.parse(localStorage.getItem(PREFS_KEY) || '{}')),
     notifications: { items: [], unreadCount: 0 }
   };
+  var routeRenderSeq = 0;
 
   var I18N = {
     ar: {
@@ -527,6 +528,18 @@
     return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + pathData + '"/></svg>';
   }
 
+  function buildLoadingSkeletonHtml(title) {
+    return '<div class="surface-card rg-skeleton-card" aria-busy="true" aria-label="جاري تحميل ' + title + '">' +
+      '<div class="rg-skeleton-line lg"></div>' +
+      '<div class="rg-skeleton-line sm"></div>' +
+      '<div class="rg-skeleton-grid">' +
+        '<div class="rg-skeleton-box"></div>' +
+        '<div class="rg-skeleton-box"></div>' +
+        '<div class="rg-skeleton-box"></div>' +
+      '</div>' +
+    '</div>';
+  }
+
   async function renderRoute() {
     var container = document.getElementById('page-content');
     var heading = document.getElementById('page-heading');
@@ -545,13 +558,26 @@
       }
     }
 
+    var seq = ++routeRenderSeq;
     root.RGDashboard.destroyCharts();
     var navItem = NAV_ITEMS.find(function (n) { return n.id === state.route; }) || NAV_ITEMS[0];
-    if (heading) heading.textContent = t(navItem.key);
+    var routeTitle = t(navItem.key);
+    if (heading) heading.textContent = routeTitle;
 
     document.querySelectorAll('.nav-item').forEach(function (el) {
       el.classList.toggle('active', el.getAttribute('data-route') === state.route);
     });
+
+    var slot = document.createElement('div');
+    slot.className = 'route-view';
+    container.innerHTML = '';
+    container.appendChild(slot);
+
+    var skeletonTimer = setTimeout(function () {
+      if (seq === routeRenderSeq && slot.parentNode === container && slot.childElementCount === 0) {
+        slot.innerHTML = buildLoadingSkeletonHtml(routeTitle);
+      }
+    }, 30);
 
     var ctx = {
       t: t,
@@ -562,43 +588,46 @@
       onAuthChanged: bootAuthenticatedApp
     };
 
-    switch (state.route) {
-      case 'dashboard':
-        await root.RGDashboard.render(container, ctx);
-        break;
-      case 'reservations':
-        await root.RGReservations.render(container, ctx);
-        break;
-      case 'my-followups':
-        await root.RGFollowUps.renderMyFollowUps(container, ctx);
-        break;
-      case 'team-followups':
-        await root.RGFollowUps.renderTeamFollowUps(container, ctx);
-        break;
-      case 'problems':
-        await root.RGProblems.render(container, ctx);
-        break;
-      case 'reports':
-        await root.RGReports.render(container, ctx);
-        break;
-      case 'employees':
-        await root.RGEmployees.render(container, ctx);
-        break;
-      case 'activity':
-        await renderActivityLog(container, ctx);
-        break;
-      case 'settings': {
-        var curUser = root.RGAuth.getUser();
-        if (!curUser || (!root.RGCrmCore.canAccessApi(curUser) && !root.RGCrmCore.canUserPerform(curUser, 'manage_settings'))) {
-          state.route = 'dashboard';
-          await root.RGDashboard.render(container, ctx);
+    try {
+      switch (state.route) {
+        case 'dashboard':
+          await root.RGDashboard.render(slot, ctx);
+          break;
+        case 'reservations':
+          await root.RGReservations.render(slot, ctx);
+          break;
+        case 'my-followups':
+          await root.RGFollowUps.renderMyFollowUps(slot, ctx);
+          break;
+        case 'team-followups':
+          await root.RGFollowUps.renderTeamFollowUps(slot, ctx);
+          break;
+        case 'problems':
+          await root.RGProblems.render(slot, ctx);
+          break;
+        case 'reports':
+          await root.RGReports.render(slot, ctx);
+          break;
+        case 'employees':
+          await root.RGEmployees.render(slot, ctx);
+          break;
+        case 'activity':
+          await renderActivityLog(slot, ctx);
+          break;
+        case 'settings': {
+          if (!curUser || (!root.RGCrmCore.canAccessApi(curUser) && !root.RGCrmCore.canUserPerform(curUser, 'manage_settings'))) {
+            state.route = 'dashboard';
+            await root.RGDashboard.render(slot, ctx);
+            break;
+          }
+          await root.RGSettings.render(slot, ctx);
           break;
         }
-        await root.RGSettings.render(container, ctx);
-        break;
+        default:
+          await root.RGDashboard.render(slot, ctx);
       }
-      default:
-        await root.RGDashboard.render(container, ctx);
+    } finally {
+      clearTimeout(skeletonTimer);
     }
   }
 
@@ -727,6 +756,17 @@
     });
   }
 
+  function applyNotificationsState(data) {
+    if (!data) return;
+    state.notifications = data;
+    var badge = document.getElementById('notif-badge');
+    if (badge) {
+      var count = data.unreadCount || 0;
+      badge.textContent = String(count);
+      badge.classList.toggle('hidden', count === 0);
+    }
+  }
+
   async function bootAuthenticatedApp() {
     var user = await root.RGAuth.restoreSession();
     if (!user) {
@@ -734,6 +774,20 @@
       return;
     }
     renderAppShell(user);
+
+    var dashRange = (state.dashboard && state.dashboard.range) || '30d';
+    var bootRes = await root.RGApi.callApi('getAppBootstrap', { range: dashRange });
+    if (bootRes && bootRes.success && bootRes.data) {
+      if (root.RGApi.primeCache) {
+        if (bootRes.data.dashboard) root.RGApi.primeCache('getDashboard', { range: dashRange }, bootRes.data.dashboard);
+        if (bootRes.data.employees) root.RGApi.primeCache('getEmployees', {}, bootRes.data.employees);
+        if (bootRes.data.notifications) root.RGApi.primeCache('getNotifications', {}, bootRes.data.notifications);
+      }
+      if (bootRes.data.notifications) applyNotificationsState(bootRes.data.notifications);
+      await renderRoute();
+      return;
+    }
+
     await Promise.all([
       renderRoute(),
       refreshNotifications()
