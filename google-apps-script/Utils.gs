@@ -110,11 +110,18 @@ function nowIso() {
 
 function formatDateOnly(dateInput) {
   if (!dateInput) return '';
+  if (typeof dateInput === 'string') {
+    var s = dateInput.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    // Rental Gate API sends local wall-clock strings without Z (e.g. 2026-11-17T15:24:00)
+    var wallMatch = s.match(/^(\d{4}-\d{2}-\d{2})(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?)?$/);
+    if (wallMatch) return wallMatch[1];
+  }
   var d = dateInput instanceof Date ? dateInput : new Date(dateInput);
   if (isNaN(d.getTime())) return String(dateInput).substring(0, 10);
   var tz = 'Asia/Riyadh';
   try {
-    tz = Session.getScriptTimeZone() || 'Asia/Riyadh';
+    tz = (typeof getSpreadsheetTz_ === 'function' ? getSpreadsheetTz_() : Session.getScriptTimeZone()) || 'Asia/Riyadh';
   } catch (e) {}
   return Utilities.formatDate(d, tz, 'yyyy-MM-dd');
 }

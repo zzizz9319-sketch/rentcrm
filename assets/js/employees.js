@@ -129,7 +129,7 @@
               '<td class="tabular-nums">' + (e.reservationsCount || 0) + '</td>' +
               '<td class="tabular-nums">' + (e.followUpsCount || 0) + '</td>' +
               '<td class="tabular-nums">' + (e.problemsCount || 0) + '</td>' +
-              '<td class="mono" style="white-space:nowrap;">' + (e.lastActivity ? esc(String(e.lastActivity).replace('T', ' ').substring(0, 16)) : '-') + '</td>' +
+              '<td class="mono tabular-nums" style="white-space:nowrap;">' + (e.lastActivity ? esc((root.RGCrmCore && root.RGCrmCore.formatDisplayDateTime ? root.RGCrmCore.formatDisplayDateTime(e.lastActivity) : String(e.lastActivity).replace('T', ' ').substring(0, 16))) : '-') + '</td>' +
               '<td><button type="button" class="btn btn-sm btn-primary emp-view-btn" data-id="' + esc(e.id) + '">العملاء</button></td>' +
               (canManage ? (
                 '<td><button type="button" class="btn btn-sm emp-edit-btn" data-id="' + esc(e.id) + '">تعديل</button></td>'
@@ -621,7 +621,7 @@
                     '<div class="meta-inline">' +
                       '<span>' + esc(r.companyName) + ' — ' + esc(r.branchName) + '</span><span>·</span>' +
                       '<span>' + esc(r.carName) + '</span><span>·</span>' +
-                      '<span class="mono">' + esc(r.startDate) + ' → ' + esc(r.endDate) + '</span>' +
+                      '<span class="mono" style="white-space:nowrap;">' + esc(root.RGCrmCore && root.RGCrmCore.formatDisplayDate ? root.RGCrmCore.formatDisplayDate(r.startDate) : r.startDate) + ' → ' + esc(root.RGCrmCore && root.RGCrmCore.formatDisplayDate ? root.RGCrmCore.formatDisplayDate(r.endDate) : r.endDate) + '</span>' +
                     '</div>' +
                     '<div class="res-story-box"><strong>ما حدث في الحجز:</strong> ' + esc(whatHappened) + '</div>' +
                     '<div style="display:flex;justify-content:space-between;align-items:center;width:100%;font-size:12px;color:var(--text-muted);">' +
@@ -645,7 +645,7 @@
                     '<div>' + esc(f.action) + '</div>' +
                     (f.notes ? '<div style="color:var(--text-secondary);font-size:12.5px;">' + esc(f.notes) + '</div>' : '') +
                     '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">' +
-                      '<div class="meta-inline mono"><span>' + esc(f.followUpDate) + '</span><span>·</span><span>' + esc(f.followUpTime) + '</span></div>' +
+                      '<div class="meta-inline mono" style="white-space:nowrap;"><span>' + esc(root.RGCrmCore && root.RGCrmCore.formatDisplayDate ? root.RGCrmCore.formatDisplayDate(f.followUpDate) : f.followUpDate) + '</span><span>·</span><span>' + esc(f.followUpTime) + '</span></div>' +
                       '<button type="button" class="btn btn-sm emp-open-res" data-res-id="' + esc(f.reservationId) + '">تفاصيل الحجز</button>' +
                     '</div>' +
                   '</div>';

@@ -109,6 +109,44 @@
     return isNaN(n) ? (fallback || 0) : n;
   }
 
+  function formatDisplayDate(val) {
+    if (val === null || val === undefined || val === '') return '';
+    if (val instanceof Date && !isNaN(val.getTime())) {
+      var shiftedDate = new Date(val.getTime() + 3 * 3600000);
+      return shiftedDate.toISOString().substring(0, 10);
+    }
+    var s = String(val).trim();
+    if (!s) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    // Wall-clock API timestamp without Z/offset (e.g. 2026-11-17T15:24:00)
+    var wallMatch = s.match(/^(\d{4}-\d{2}-\d{2})(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?)?$/);
+    if (wallMatch) return wallMatch[1];
+    // UTC Z or offset timestamp (e.g. Google Sheets midnight 2026-11-16T22:00:00.000Z -> 2026-11-17)
+    var parsed = new Date(s);
+    if (!isNaN(parsed.getTime())) {
+      var riyadhShifted = new Date(parsed.getTime() + 3 * 3600000);
+      return riyadhShifted.toISOString().substring(0, 10);
+    }
+    return s.substring(0, 10);
+  }
+
+  function formatDisplayDateTime(val) {
+    if (val === null || val === undefined || val === '') return '';
+    var s = String(val).trim();
+    if (!s) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    var wallMatch = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/);
+    if (wallMatch && s.indexOf('Z') === -1 && !/[+-]\d{2}:?\d{2}$/.test(s)) {
+      return wallMatch[1] + ' ' + wallMatch[2];
+    }
+    var parsed = new Date(s);
+    if (!isNaN(parsed.getTime())) {
+      var riyadhShifted = new Date(parsed.getTime() + 3 * 3600000);
+      return riyadhShifted.toISOString().replace('T', ' ').substring(0, 16);
+    }
+    return s.replace('T', ' ').substring(0, 16);
+  }
+
   function translateOriginalStatus(code) {
     var key = normalizeStr(code).toLowerCase().replace(/\s+/g, '_');
     return STATUS_TRANSLATIONS[key] || normalizeStr(code) || 'غير محدد';
@@ -189,8 +227,8 @@
       branchName: normalizeStr(apiItem.receiveBranchArName || apiItem.receiveBranchEnName || apiItem.branch_name || (apiItem.branch && apiItem.branch.name) || ''),
       carName: normalizeStr(apiItem.carNameAr || apiItem.carNameEn || apiItem.car_name || (apiItem.car && apiItem.car.name) || ''),
       plateNumber: normalizeStr(apiItem.plate_number || apiItem.plateNumber || (apiItem.car && apiItem.car.plate_number) || ''),
-      startDate: normalizeStr(apiItem.startDate || apiItem.start_date || apiItem.pickup_date).substring(0, 10),
-      endDate: normalizeStr(apiItem.actualEndDate || apiItem.endDate || apiItem.end_date || apiItem.return_date).substring(0, 10),
+      startDate: formatDisplayDate(apiItem.startDate || apiItem.start_date || apiItem.pickup_date),
+      endDate: formatDisplayDate(apiItem.actualEndDate || apiItem.endDate || apiItem.end_date || apiItem.return_date),
       daysCount: toNum(apiItem.reservationDays || apiItem.days_count || apiItem.days, 1),
       originalStatusCode: statusCode,
       originalStatusAr: translateOriginalStatus(statusCode),
@@ -904,6 +942,7 @@
   }
 
   var API_CACHE_POLICIES = {
+    getAppBootstrap: { cacheable: true, ttlMs: 30000, scope: 'dashboard' },
     getMe: { cacheable: true, ttlMs: 300000, scope: 'employees' },
     getEmployees: { cacheable: true, ttlMs: 300000, scope: 'employees' },
     getEmployeeDetails: { cacheable: true, ttlMs: 60000, scope: 'employees' },
@@ -1016,6 +1055,8 @@
     parseGasResponseText: parseGasResponseText,
     getApiCachePolicy: getApiCachePolicy,
     buildApiCacheKey: buildApiCacheKey,
-    getCacheInvalidationScopes: getCacheInvalidationScopes
+    getCacheInvalidationScopes: getCacheInvalidationScopes,
+    formatDisplayDate: formatDisplayDate,
+    formatDisplayDateTime: formatDisplayDateTime
   };
 }));

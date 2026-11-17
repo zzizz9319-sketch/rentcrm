@@ -39,13 +39,72 @@
     return safeStorageGet(STORAGE_GAS_URL);
   }
 
+  var SESSION_CACHE_KEY = 'rg_crm_swr_v1';
+  var SWR_STALE_MAX_MS = 300000;
   var sandboxDbCache = null;
   var apiResponseCache = {};
   var inFlightRequests = {};
+  var persistTimer = null;
+
+  function hydrateApiCache() {
+    try {
+      if (typeof sessionStorage === 'undefined') return;
+      var raw = sessionStorage.getItem(SESSION_CACHE_KEY);
+      if (!raw) return;
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return;
+      var now = Date.now();
+      Object.keys(parsed).forEach(function (k) {
+        var entry = parsed[k];
+        if (entry && entry.response && entry.staleUntil && now < entry.staleUntil) {
+          apiResponseCache[k] = entry;
+        }
+      });
+    } catch (e) {}
+  }
+
+  function flushPersistApiCache() {
+    try {
+      if (typeof sessionStorage === 'undefined') return;
+      var now = Date.now();
+      var keys = Object.keys(apiResponseCache).filter(function (k) {
+        var entry = apiResponseCache[k];
+        return entry && entry.response && entry.response.success && now < (entry.staleUntil || entry.expiresAt || 0);
+      });
+      if (keys.length > 35) {
+        keys.sort(function (a, b) {
+          return (apiResponseCache[b].storedAt || 0) - (apiResponseCache[a].storedAt || 0);
+        });
+        keys = keys.slice(0, 35);
+      }
+      var snapshot = {};
+      keys.forEach(function (k) { snapshot[k] = apiResponseCache[k]; });
+      var serialized = JSON.stringify(snapshot);
+      if (serialized.length <= 1500000) {
+        sessionStorage.setItem(SESSION_CACHE_KEY, serialized);
+      }
+    } catch (e) {}
+  }
+
+  function schedulePersistApiCache(immediate) {
+    if (immediate) {
+      if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
+      flushPersistApiCache();
+      return;
+    }
+    if (persistTimer) return;
+    persistTimer = setTimeout(function () {
+      persistTimer = null;
+      flushPersistApiCache();
+    }, 60);
+  }
+
+  hydrateApiCache();
 
   function clearCache(scopes) {
     if (!scopes || (Array.isArray(scopes) && scopes.indexOf('*') !== -1)) {
       apiResponseCache = {};
+      try { if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(SESSION_CACHE_KEY); } catch (e) {}
       return;
     }
     var list = Array.isArray(scopes) ? scopes : [scopes];
@@ -55,6 +114,7 @@
         delete apiResponseCache[k];
       }
     });
+    schedulePersistApiCache(true);
   }
 
   function primeCache(action, payload, data) {
@@ -62,12 +122,16 @@
     if (!core || !core.getApiCachePolicy || !core.buildApiCacheKey) return;
     var policy = core.getApiCachePolicy(action);
     if (!policy.cacheable) return;
+    var now = Date.now();
     var key = core.buildApiCacheKey(getGasUrl(), getToken(), action, payload || {});
     apiResponseCache[key] = {
       scope: policy.scope,
-      expiresAt: Date.now() + policy.ttlMs,
+      storedAt: now,
+      expiresAt: now + policy.ttlMs,
+      staleUntil: now + Math.max(policy.ttlMs, SWR_STALE_MAX_MS),
       response: { success: true, message: '', data: data, error: null }
     };
+    schedulePersistApiCache(false);
   }
 
   function hasCached(action, payload) {
@@ -1926,9 +1990,24 @@
       ? core.buildApiCacheKey(gasUrl, token, action, payload)
       : '';
 
+    var startNetworkOrSandbox = function () {
+      var promise = executeCall().finally(function () {
+        delete inFlightRequests[cacheKey];
+      });
+      inFlightRequests[cacheKey] = promise;
+      return promise;
+    };
+
     if (policy.cacheable && !skipCache && cacheKey && apiResponseCache[cacheKey]) {
       var cachedEntry = apiResponseCache[cacheKey];
-      if (Date.now() < cachedEntry.expiresAt) {
+      var nowTs = Date.now();
+      if (nowTs < cachedEntry.expiresAt) {
+        return cachedEntry.response;
+      }
+      if (nowTs < (cachedEntry.staleUntil || 0)) {
+        if (!inFlightRequests[cacheKey]) {
+          startNetworkOrSandbox().catch(function () {});
+        }
         return cachedEntry.response;
       }
       delete apiResponseCache[cacheKey];
@@ -1938,7 +2017,7 @@
       return inFlightRequests[cacheKey];
     }
 
-    var executeCall = async function () {
+    async function executeCall() {
       var parsed;
       if (!gasUrl) {
         parsed = sandboxExecute(action, token, payload);
@@ -1989,11 +2068,15 @@
 
       if (parsed && parsed.success) {
         if (policy.cacheable && cacheKey && !skipCache) {
+          var writeTs = Date.now();
           apiResponseCache[cacheKey] = {
             scope: policy.scope,
-            expiresAt: Date.now() + policy.ttlMs,
+            storedAt: writeTs,
+            expiresAt: writeTs + policy.ttlMs,
+            staleUntil: writeTs + Math.max(policy.ttlMs, SWR_STALE_MAX_MS),
             response: parsed
           };
+          schedulePersistApiCache(false);
         } else if (core && core.getCacheInvalidationScopes) {
           var invScopes = core.getCacheInvalidationScopes(action);
           if (invScopes.length > 0) {
@@ -2002,14 +2085,10 @@
         }
       }
       return parsed;
-    };
+    }
 
     if (policy.cacheable && !skipCache && cacheKey) {
-      var promise = executeCall().finally(function () {
-        delete inFlightRequests[cacheKey];
-      });
-      inFlightRequests[cacheKey] = promise;
-      return promise;
+      return startNetworkOrSandbox();
     }
 
     return executeCall();

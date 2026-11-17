@@ -291,8 +291,8 @@
     { key: 'companyName', label: 'الشركة' },
     { key: 'branchName', label: 'الفرع' },
     { key: 'carName', label: 'السيارة' },
-    { key: 'startDate', label: 'بداية الحجز' },
-    { key: 'endDate', label: 'نهاية الحجز' },
+    { key: 'startDate', label: 'بداية الحجز', value: function (r) { return root.RGCrmCore && root.RGCrmCore.formatDisplayDate ? root.RGCrmCore.formatDisplayDate(r.startDate) : r.startDate; } },
+    { key: 'endDate', label: 'نهاية الحجز', value: function (r) { return root.RGCrmCore && root.RGCrmCore.formatDisplayDate ? root.RGCrmCore.formatDisplayDate(r.endDate) : r.endDate; } },
     { key: 'originalStatusAr', label: 'حالة الحجز الأصلية' },
     { key: 'internalStatus', label: 'حالة المتابعة الداخلية' },
     { key: 'assignedEmployeeNames', label: 'الموظفون المسؤولون' },
@@ -393,6 +393,9 @@
 
       renderReportCharts(state.reportType, state.rows);
 
+      var DATE_ONLY_KEYS = { startDate: true, endDate: true, followUpDate: true, logDate: true };
+      var DATETIME_KEYS = { createdAt: true, updatedAt: true, lastUpdatedAt: true, finishedAt: true, startedAt: true, lastActivity: true, syncedAt: true };
+
       wrap.innerHTML =
         '<div class="meta-inline" style="margin-bottom:10px;"><span>عدد السجلات: <strong class="tabular-nums">' + state.rows.length + '</strong></span></div>' +
         '<div class="table-wrap"><table class="data-table"><thead><tr>' +
@@ -402,6 +405,14 @@
             return '<tr>' + keys.map(function (k) {
               var val = row[k];
               if (Array.isArray(val)) val = val.join('، ');
+              if (DATE_ONLY_KEYS[k]) {
+                var df = (root.RGCrmCore && root.RGCrmCore.formatDisplayDate) ? root.RGCrmCore.formatDisplayDate(val) : val;
+                return '<td class="mono tabular-nums" style="white-space:nowrap;">' + (df || '-') + '</td>';
+              }
+              if (DATETIME_KEYS[k]) {
+                var dtf = (root.RGCrmCore && root.RGCrmCore.formatDisplayDateTime) ? root.RGCrmCore.formatDisplayDateTime(val) : val;
+                return '<td class="mono tabular-nums" style="white-space:nowrap;">' + (dtf || '-') + '</td>';
+              }
               return '<td class="tabular-nums">' + (val !== undefined && val !== null ? String(val) : '-') + '</td>';
             }).join('') + '</tr>';
           }).join('') +

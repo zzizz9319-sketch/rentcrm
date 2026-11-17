@@ -84,11 +84,25 @@ var RG_SHEETS_SCHEMA = {
 };
 
 var _rgSpreadsheetCache = null;
+var _rgSpreadsheetTzCache = '';
 var _rgVerifiedSheetsCache = {};
 var _rgRecordsCache = {};
 var RG_CACHE_CHUNK_SIZE = 75000;
 var RG_CACHE_MAX_CHUNKS = 12;
 var RG_CACHE_TTL_SECONDS = 300;
+var RG_DATE_ONLY_FIELDS = { startDate: true, endDate: true, followUpDate: true, logDate: true };
+var RG_TIME_ONLY_FIELDS = { followUpTime: true, logTime: true };
+
+function getSpreadsheetTz_() {
+  if (_rgSpreadsheetTzCache) return _rgSpreadsheetTzCache;
+  try {
+    var ss = getSpreadsheet();
+    _rgSpreadsheetTzCache = ss.getSpreadsheetTimeZone() || Session.getScriptTimeZone() || 'Asia/Riyadh';
+  } catch (e) {
+    _rgSpreadsheetTzCache = 'Asia/Riyadh';
+  }
+  return _rgSpreadsheetTzCache;
+}
 
 function getSpreadsheet() {
   if (_rgSpreadsheetCache) return _rgSpreadsheetCache;
@@ -130,7 +144,7 @@ function withScriptLock(fn) {
 }
 
 function getCacheKey(sheetName) {
-  return 'RG_CACHE_' + sheetName;
+  return 'RG_CACHE_V2_' + sheetName;
 }
 
 function invalidateCache(sheetName) {
@@ -413,6 +427,7 @@ function readAllRecords(sheetName, skipCache) {
 
   var values = sheet.getRange(1, 1, lastRow, lastCol).getValues();
   var fileHeaders = values[0];
+  var ssTz = getSpreadsheetTz_();
   var records = [];
 
   for (var r = 1; r < values.length; r++) {
@@ -426,7 +441,19 @@ function readAllRecords(sheetName, skipCache) {
       if (cell !== '' && cell !== null && cell !== undefined) {
         isEmpty = false;
       }
-      obj[header] = cell instanceof Date ? cell.toISOString() : cell;
+      if (cell instanceof Date) {
+        if (RG_DATE_ONLY_FIELDS[header]) {
+          obj[header] = Utilities.formatDate(cell, ssTz, 'yyyy-MM-dd');
+        } else if (RG_TIME_ONLY_FIELDS[header]) {
+          obj[header] = Utilities.formatDate(cell, ssTz, 'HH:mm:ss');
+        } else {
+          obj[header] = cell.toISOString();
+        }
+      } else if (RG_DATE_ONLY_FIELDS[header] && typeof cell === 'string' && cell.length > 10) {
+        obj[header] = formatDateOnly(cell);
+      } else {
+        obj[header] = cell;
+      }
     }
     if (!isEmpty) {
       records.push(obj);
@@ -474,6 +501,16 @@ function findRecordById(sheetName, idField, idValue, skipCache) {
   return null;
 }
 
+function applyTextFormatForDateColumns_(sheet, headers, startRow, numRows) {
+  if (!sheet || !headers || numRows < 1) return;
+  for (var c = 0; c < headers.length; c++) {
+    var h = headers[c];
+    if (RG_DATE_ONLY_FIELDS[h] || RG_TIME_ONLY_FIELDS[h]) {
+      sheet.getRange(startRow, c + 1, numRows, 1).setNumberFormat('@');
+    }
+  }
+}
+
 function recordToRowArray(headers, recordObj) {
   var row = [];
   for (var i = 0; i < headers.length; i++) {
@@ -488,7 +525,9 @@ function appendRecord(sheetName, recordObj) {
   var sheet = getSheetOrCreate(ss, sheetName);
   var headers = getEffectiveHeaders(sheet, sheetName);
   var row = recordToRowArray(headers, recordObj);
-  sheet.appendRow(row);
+  var nextRow = Math.max(2, sheet.getLastRow() + 1);
+  applyTextFormatForDateColumns_(sheet, headers, nextRow, 1);
+  sheet.getRange(nextRow, 1, 1, headers.length).setValues([row]);
   invalidateCache(sheetName);
   return recordObj;
 }
@@ -503,6 +542,7 @@ function batchAppendRecords(sheetName, recordsList) {
     rows.push(recordToRowArray(headers, recordsList[i]));
   }
   var startRow = Math.max(2, sheet.getLastRow() + 1);
+  applyTextFormatForDateColumns_(sheet, headers, startRow, rows.length);
   sheet.getRange(startRow, 1, rows.length, headers.length).setValues(rows);
   invalidateCache(sheetName);
   return rows.length;
@@ -592,10 +632,12 @@ function batchUpsertRecords(sheetName, keyField, recordsList) {
   }
 
   if (hasUpdates && existingValues.length > 0) {
+    applyTextFormatForDateColumns_(sheet, headers, 2, existingValues.length);
     sheet.getRange(2, 1, existingValues.length, headers.length).setValues(existingValues);
   }
   if (insertedRows.length > 0) {
     var appendStart = existingValues.length + 2;
+    applyTextFormatForDateColumns_(sheet, headers, appendStart, insertedRows.length);
     sheet.getRange(appendStart, 1, insertedRows.length, headers.length).setValues(insertedRows);
   }
 

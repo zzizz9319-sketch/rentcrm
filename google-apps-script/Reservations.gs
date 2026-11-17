@@ -92,7 +92,10 @@ function getReservations(session, params) {
     var va = a[sortBy];
     var vb = b[sortBy];
     if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * sortDir;
-    return String(va || '').localeCompare(String(vb || '')) * sortDir;
+    var sa = String(va || '');
+    var sb = String(vb || '');
+    if (sa === sb) return 0;
+    return (sa < sb ? -1 : 1) * sortDir;
   });
 
   var page = Math.max(1, toNumber(p.page, 1));

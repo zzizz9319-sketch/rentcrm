@@ -43,8 +43,19 @@
     return 'status-neutral';
   }
 
+  function formatDateOnly(val) {
+    if (!val) return '-';
+    if (root.RGCrmCore && root.RGCrmCore.formatDisplayDate) {
+      return root.RGCrmCore.formatDisplayDate(val) || '-';
+    }
+    return String(val).substring(0, 10);
+  }
+
   function formatTimestamp(iso) {
     if (!iso) return '-';
+    if (root.RGCrmCore && root.RGCrmCore.formatDisplayDateTime) {
+      return root.RGCrmCore.formatDisplayDateTime(iso) || '-';
+    }
     return String(iso).replace('T', ' ').substring(0, 16);
   }
 
@@ -178,8 +189,11 @@
                     }).join('') +
                   '</div></td>';
                 }
+                if (c.key === 'startDate' || c.key === 'endDate') {
+                  return '<td class="mono tabular-nums" style="white-space:nowrap;">' + esc(formatDateOnly(r[c.key])) + '</td>';
+                }
                 if (c.key === 'lastUpdatedAt') {
-                  return '<td class="mono">' + formatTimestamp(r.lastUpdatedAt) + '</td>';
+                  return '<td class="mono tabular-nums" style="white-space:nowrap;">' + esc(formatTimestamp(r.lastUpdatedAt)) + '</td>';
                 }
                 return '<td class="tabular-nums">' + esc(r[c.key] || '-') + '</td>';
               }).join('');
@@ -479,7 +493,7 @@
           '<div class="detail-summary-grid">' +
             '<div class="detail-kv"><span class="detail-k">الشركة / الفرع</span><span class="detail-v">' + esc(r.companyName) + ' — ' + esc(r.branchName) + '</span></div>' +
             '<div class="detail-kv"><span class="detail-k">السيارة</span><span class="detail-v">' + esc(r.carName) + ' (' + esc(r.plateNumber || '-') + ')</span></div>' +
-            '<div class="detail-kv"><span class="detail-k">الفترة</span><span class="detail-v mono">' + esc(r.startDate) + ' → ' + esc(r.endDate) + ' (' + Number(r.daysCount || 1) + ' يوم)</span></div>' +
+            '<div class="detail-kv"><span class="detail-k">الفترة</span><span class="detail-v mono" style="white-space:nowrap;">' + esc(formatDateOnly(r.startDate)) + ' → ' + esc(formatDateOnly(r.endDate)) + ' (' + Number(r.daysCount || 1) + ' يوم)</span></div>' +
             '<div class="detail-kv"><span class="detail-k">الاستلام / التسليم</span><span class="detail-v">' + esc(r.pickupTypeAr) + ' / ' + esc(r.returnTypeAr) + '</span></div>' +
             '<div class="detail-kv"><span class="detail-k">الحالة الأصلية / الداخلية</span><span class="detail-v">' + esc(r.originalStatusAr) + ' / ' + esc(r.internalStatus) + '</span></div>' +
             '<div class="detail-kv"><span class="detail-k">آخر تحديث</span><span class="detail-v">' + esc(r.lastUpdateText || '-') + '</span></div>' +
@@ -568,7 +582,7 @@
                     '</div>' +
                     '<div>' + esc(f.action) + '</div>' +
                     (f.notes ? '<div style="color:var(--text-secondary);font-size:12.5px;">' + esc(f.notes) + '</div>' : '') +
-                    '<div class="meta-inline mono"><span>' + esc(f.followUpDate) + '</span><span>·</span><span>' + esc(f.followUpTime) + '</span></div>' +
+                    '<div class="meta-inline mono"><span>' + esc(formatDateOnly(f.followUpDate)) + '</span><span>·</span><span>' + esc(f.followUpTime) + '</span></div>' +
                   '</div>';
                 }).join('') + '</div>') +
           '</div>' +
@@ -768,8 +782,8 @@
             '<div class="form-group"><label class="form-label" for="re-branch">الفرع</label><input class="input" id="re-branch" value="' + esc(reservation.branchName) + '"></div>' +
             '<div class="form-group"><label class="form-label" for="re-car">السيارة</label><input class="input" id="re-car" value="' + esc(reservation.carName) + '"></div>' +
             '<div class="form-group"><label class="form-label" for="re-plate">رقم اللوحة</label><input class="input" id="re-plate" value="' + esc(reservation.plateNumber) + '"></div>' +
-            '<div class="form-group"><label class="form-label" for="re-start">تاريخ البداية</label><input type="date" class="input" id="re-start" value="' + esc(reservation.startDate) + '"></div>' +
-            '<div class="form-group"><label class="form-label" for="re-end">تاريخ النهاية</label><input type="date" class="input" id="re-end" value="' + esc(reservation.endDate) + '"></div>' +
+            '<div class="form-group"><label class="form-label" for="re-start">تاريخ البداية</label><input type="date" class="input" id="re-start" value="' + esc(formatDateOnly(reservation.startDate) === '-' ? '' : formatDateOnly(reservation.startDate)) + '"></div>' +
+            '<div class="form-group"><label class="form-label" for="re-end">تاريخ النهاية</label><input type="date" class="input" id="re-end" value="' + esc(formatDateOnly(reservation.endDate) === '-' ? '' : formatDateOnly(reservation.endDate)) + '"></div>' +
             '<div class="form-group"><label class="form-label" for="re-pickup">نوع الاستلام</label><input class="input" id="re-pickup" value="' + esc(reservation.pickupTypeAr) + '"></div>' +
             '<div class="form-group"><label class="form-label" for="re-return">نوع التسليم</label><input class="input" id="re-return" value="' + esc(reservation.returnTypeAr) + '"></div>' +
             '<div class="form-group"><label class="form-label" for="re-status">الحالة الداخلية</label>' +
@@ -858,7 +872,7 @@
           '<div class="modal-header">' +
             '<div>' +
               '<h3 class="modal-title" id="fu-edit-title">تعديل التحديث والمتابعة — <span class="mono">' + esc(reservation.reservationNumber) + '</span></h3>' +
-              '<div class="meta-inline"><span>الموظف: ' + esc(followUp.employeeName) + '</span><span>·</span><span class="mono">' + esc(followUp.followUpDate) + ' ' + esc(followUp.followUpTime) + '</span></div>' +
+              '<div class="meta-inline"><span>الموظف: ' + esc(followUp.employeeName) + '</span><span>·</span><span class="mono">' + esc(formatDateOnly(followUp.followUpDate)) + ' ' + esc(followUp.followUpTime) + '</span></div>' +
             '</div>' +
             '<button type="button" class="btn btn-sm" id="fu-edit-cancel">رجوع</button>' +
           '</div>' +
@@ -1119,7 +1133,7 @@
       }
       if (incBooking) {
         summary.push({ label: 'الشركة والفرع', value: r.companyName + ' — ' + r.branchName });
-        summary.push({ label: 'السيارة والفترة', value: r.carName + ' | ' + r.startDate + ' → ' + r.endDate });
+        summary.push({ label: 'السيارة والفترة', value: r.carName + ' | ' + formatDateOnly(r.startDate) + ' → ' + formatDateOnly(r.endDate) });
       }
       if (incStaff) {
         summary.push({ label: 'الموظفون المسؤولون', value: (r.assignedEmployeeNames || []).join('، ') || 'غير مسند' });
@@ -1133,7 +1147,7 @@
         extraSections.push({
           title: 'التمديدات المعتمدة والمدفوعة (' + details.extensions.length + ')',
           lines: details.extensions.map(function (ex) {
-            return ex.extensionNumber + ' | ' + ex.extendDays + ' يوم (' + ex.startDate + ' → ' + ex.endDate + ') | ' + ex.amount + ' ر.س';
+            return ex.extensionNumber + ' | ' + ex.extendDays + ' يوم (' + formatDateOnly(ex.startDate) + ' → ' + formatDateOnly(ex.endDate) + ') | ' + ex.amount + ' ر.س';
           })
         });
       }
@@ -1141,12 +1155,12 @@
         extraSections.push({
           title: 'سجل المتابعات (' + details.followUps.length + ')',
           lines: details.followUps.map(function (f) {
-            return f.followUpDate + ' ' + f.followUpTime + ' | ' + f.employeeName + ' [' + f.status + ']: ' + f.action + (incNotes && f.notes ? ' — ملاحظة: ' + f.notes : '');
+            return formatDateOnly(f.followUpDate) + ' ' + f.followUpTime + ' | ' + f.employeeName + ' [' + f.status + ']: ' + f.action + (incNotes && f.notes ? ' — ملاحظة: ' + f.notes : '');
           })
         });
       } else if (incNotes) {
         var noteLines = details.followUps.filter(function (f) { return Boolean(f.notes); }).map(function (f) {
-          return f.followUpDate + ' | ' + f.employeeName + ': ' + f.notes;
+          return formatDateOnly(f.followUpDate) + ' | ' + f.employeeName + ': ' + f.notes;
         });
         if (noteLines.length) {
           extraSections.push({

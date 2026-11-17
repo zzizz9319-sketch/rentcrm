@@ -73,7 +73,7 @@
                 '<div>' + esc(f.action) + '</div>' +
                 (f.notes ? '<div style="color:var(--text-secondary);font-size:12.5px;">' + esc(f.notes) + '</div>' : '') +
                 '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">' +
-                  '<div class="meta-inline mono"><span>' + esc(f.followUpDate) + '</span><span>·</span><span>' + esc(f.followUpTime) + '</span></div>' +
+                  '<div class="meta-inline mono" style="white-space:nowrap;"><span>' + esc((root.RGCrmCore && root.RGCrmCore.formatDisplayDate ? root.RGCrmCore.formatDisplayDate(f.followUpDate) : f.followUpDate) || '-') + '</span><span>·</span><span>' + esc(f.followUpTime) + '</span></div>' +
                   '<button type="button" class="btn btn-sm myfu-open" data-id="' + esc(f.reservationId) + '">تفاصيل الحجز</button>' +
                 '</div>' +
               '</div>';
@@ -186,7 +186,7 @@
                   '<td><span class="status-tag status-info">' + esc(f.status) + '</span></td>' +
                   '<td>' + esc(f.action) + '</td>' +
                   '<td>' + esc(f.notes || '-') + '</td>' +
-                  '<td class="mono">' + esc(f.followUpDate) + ' ' + esc(f.followUpTime) + '</td>' +
+                  '<td class="mono tabular-nums" style="white-space:nowrap;">' + esc((root.RGCrmCore && root.RGCrmCore.formatDisplayDate ? root.RGCrmCore.formatDisplayDate(f.followUpDate) : f.followUpDate) || '-') + ' ' + esc(f.followUpTime) + '</td>' +
                   '<td><button type="button" class="btn btn-sm btn-primary tfu-open-res" data-res-id="' + esc(f.reservationId) + '">التفاصيل</button></td>' +
                 '</tr>';
               }).join('') +

@@ -284,7 +284,7 @@
             return '<button type="button" class="notif-item' + (n.isRead ? '' : ' unread') + '" data-nid="' + n.id + '" style="text-align:start;font-family:inherit;">' +
               '<strong>' + n.title + '</strong>' +
               '<span style="font-size:12.5px;color:var(--text-secondary);">' + n.message + '</span>' +
-              '<span class="mono" style="font-size:11px;color:var(--text-muted);">' + String(n.createdAt).replace('T', ' ').substring(0, 16) + '</span>' +
+              '<span class="mono" style="font-size:11px;color:var(--text-muted);">' + (root.RGCrmCore && root.RGCrmCore.formatDisplayDateTime ? root.RGCrmCore.formatDisplayDateTime(n.createdAt) : String(n.createdAt).replace('T', ' ').substring(0, 16)) + '</span>' +
             '</button>';
           }).join(''));
 
@@ -326,8 +326,8 @@
                   '<td><span class="status-tag status-info">' + l.actionType + '</span></td>' +
                   '<td class="mono">' + (l.entityType ? l.entityType + ': ' + l.entityId : '-') + '</td>' +
                   '<td>' + (l.details || '-') + '</td>' +
-                  '<td class="mono">' + l.logDate + '</td>' +
-                  '<td class="mono">' + l.logTime + '</td>' +
+                  '<td class="mono tabular-nums" style="white-space:nowrap;">' + (root.RGCrmCore && root.RGCrmCore.formatDisplayDate ? root.RGCrmCore.formatDisplayDate(l.logDate) : l.logDate) + '</td>' +
+                  '<td class="mono tabular-nums" style="white-space:nowrap;">' + l.logTime + '</td>' +
                 '</tr>';
               }).join('') +
             '</tbody></table></div>') +

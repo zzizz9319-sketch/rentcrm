@@ -386,3 +386,16 @@ test('supports real Rental Gate OpenAPI ReservationSummaryForFilterDto and Reser
   assert.equal(synced.internalStatus, 'تم التمديد');
 });
 
+test('formatDisplayDate and formatDisplayDateTime normalize Google Sheets UTC midnight ISO strings without off-by-one shifts', () => {
+  assert.equal(core.formatDisplayDate('2026-11-16T22:00:00.000Z'), '2026-11-17');
+  assert.equal(core.formatDisplayDate('2026-11-17T22:00:00.000Z'), '2026-11-18');
+  assert.equal(core.formatDisplayDate('2026-11-17T15:24:00'), '2026-11-17');
+  assert.equal(core.formatDisplayDate('2026-11-17'), '2026-11-17');
+  assert.equal(core.formatDisplayDateTime('2026-11-16T22:00:00.000Z'), '2026-11-17 01:00');
+  assert.equal(core.formatDisplayDateTime('2026-11-17T15:24:00'), '2026-11-17 15:24');
+
+  const bsPolicy = core.getApiCachePolicy('getAppBootstrap');
+  assert.equal(bsPolicy.cacheable, true);
+  assert.equal(bsPolicy.ttlMs >= 30000, true);
+});
+
