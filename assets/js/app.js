@@ -729,6 +729,12 @@
         overlay.classList.remove('active');
         renderRoute();
       });
+      btn.addEventListener('mouseenter', function () {
+        prefetchRouteData(btn.getAttribute('data-route'));
+      });
+      btn.addEventListener('focus', function () {
+        prefetchRouteData(btn.getAttribute('data-route'));
+      });
     });
 
     document.getElementById('notif-toggle-btn').addEventListener('click', toggleNotificationsPopover);
@@ -767,6 +773,70 @@
     }
   }
 
+  function prefetchRouteData(routeId) {
+    if (!root.RGApi || !root.RGApi.hasCached || !root.RGAuth) return;
+    var u = root.RGAuth.getUser();
+    if (!u) return;
+
+    var action = '';
+    var payload = {};
+    switch (routeId) {
+      case 'reservations':
+        action = 'getReservations';
+        payload = { page: 1, pageSize: 20 };
+        break;
+      case 'my-followups':
+        action = 'getMyFollowUps';
+        break;
+      case 'team-followups':
+        action = 'getTeamFollowUps';
+        break;
+      case 'problems':
+        action = 'getProblems';
+        break;
+      case 'reports':
+        action = 'getReports';
+        payload = { type: 'all' };
+        break;
+      case 'employees':
+        if (root.RGCrmCore && root.RGCrmCore.canUserPerform(u, 'view_employees')) {
+          action = 'getEmployees';
+        }
+        break;
+      case 'activity':
+        action = 'getActivityLogs';
+        payload = { limit: 100 };
+        break;
+      case 'settings':
+        if (root.RGCrmCore && (root.RGCrmCore.canAccessApi(u) || root.RGCrmCore.canUserPerform(u, 'manage_settings'))) {
+          action = 'getSettings';
+        }
+        break;
+    }
+    if (!action || root.RGApi.hasCached(action, payload)) return;
+    root.RGApi.callApi(action, payload).catch(function () {});
+  }
+
+  function scheduleBackgroundPrefetch(user) {
+    var core = root.RGCrmCore;
+    var targets = ['reservations', 'my-followups', 'problems'];
+    if (core && core.canUserPerform && core.canUserPerform(user, 'view_all_reservations')) {
+      targets.push('team-followups');
+    }
+    if (core && core.canAccessApi && core.canAccessApi(user)) {
+      targets.push('settings');
+    }
+    setTimeout(function () {
+      targets.forEach(function (routeId, idx) {
+        setTimeout(function () {
+          if (root.RGAuth && root.RGAuth.getUser()) {
+            prefetchRouteData(routeId);
+          }
+        }, idx * 80);
+      });
+    }, 120);
+  }
+
   async function bootAuthenticatedApp() {
     var user = await root.RGAuth.restoreSession();
     if (!user) {
@@ -785,6 +855,7 @@
       }
       if (bootRes.data.notifications) applyNotificationsState(bootRes.data.notifications);
       await renderRoute();
+      scheduleBackgroundPrefetch(user);
       return;
     }
 
@@ -792,6 +863,7 @@
       renderRoute(),
       refreshNotifications()
     ]);
+    scheduleBackgroundPrefetch(user);
   }
 
   document.addEventListener('rg:unauthorized', function () {

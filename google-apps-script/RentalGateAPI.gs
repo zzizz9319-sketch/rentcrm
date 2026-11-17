@@ -11,22 +11,23 @@ function getRgToken() {
   return normalizeStr(props.getProperty('RG_TOKEN') || props.getProperty('RENTAL_TOKEN'));
 }
 
-function callRentalGateEndpoint(url, token, pageZeroBased, size) {
+function buildRentalGateRequest_(url, token, pageZeroBased, size) {
   var pageNum = pageZeroBased !== undefined && pageZeroBased !== null ? Math.max(0, Number(pageZeroBased) || 0) : 0;
   var pageSize = size ? Math.max(1, Number(size) || 100) : 100;
   var sep = url.indexOf('?') === -1 ? '?' : '&';
-  var fullUrl = url + sep + 'page=' + encodeURIComponent(pageNum) + '&size=' + encodeURIComponent(pageSize);
-
-  var options = {
+  return {
+    url: url + sep + 'page=' + encodeURIComponent(pageNum) + '&size=' + encodeURIComponent(pageSize),
     method: 'get',
     headers: {
       Authorization: 'Bearer ' + token,
-      Accept: 'application/json'
+      Accept: 'application/json',
+      lang: 'ar'
     },
     muteHttpExceptions: true
   };
+}
 
-  var res = UrlFetchApp.fetch(fullUrl, options);
+function parseRentalGateResponse_(res) {
   var code = res.getResponseCode();
   var text = res.getContentText();
   if (code < 200 || code >= 300) {
@@ -35,58 +36,146 @@ function callRentalGateEndpoint(url, token, pageZeroBased, size) {
   return safeJsonParse(text, {});
 }
 
+function extractPagePayload_(body, pageIndex) {
+  var rows = [];
+  var totalPages = 1;
+  var isLast = true;
+
+  if (Array.isArray(body)) {
+    rows = body;
+  } else if (body && Array.isArray(body.content)) {
+    rows = body.content;
+    totalPages = toNumber(body.totalPages, 1);
+    isLast = body.last === true || (pageIndex + 1) >= totalPages;
+  } else if (body && body.data) {
+    if (Array.isArray(body.data)) {
+      rows = body.data;
+      totalPages = toNumber((body.meta && body.meta.last_page) || (body.pagination && body.pagination.last_page) || body.last_page, 1);
+      isLast = (pageIndex + 1) >= totalPages;
+    } else if (Array.isArray(body.data.content)) {
+      rows = body.data.content;
+      totalPages = toNumber(body.data.totalPages, 1);
+      isLast = body.data.last === true || (pageIndex + 1) >= totalPages;
+    } else if (Array.isArray(body.data.data)) {
+      rows = body.data.data;
+      totalPages = toNumber(body.data.last_page || (body.data.meta && body.data.meta.last_page) || (body.data.pagination && body.data.pagination.last_page), 1);
+      isLast = (pageIndex + 1) >= totalPages;
+    }
+  } else if (body && Array.isArray(body.items)) {
+    rows = body.items;
+    totalPages = toNumber((body.meta && body.meta.last_page) || (body.pagination && body.pagination.last_page) || body.last_page, 1);
+    isLast = (pageIndex + 1) >= totalPages;
+  }
+  return { rows: rows, totalPages: totalPages, isLast: isLast };
+}
+
+function callRentalGateEndpoint(url, token, pageZeroBased, size) {
+  var req = buildRentalGateRequest_(url, token, pageZeroBased, size);
+  var res = UrlFetchApp.fetch(req.url, {
+    method: req.method,
+    headers: req.headers,
+    muteHttpExceptions: true
+  });
+  return parseRentalGateResponse_(res);
+}
+
 function fetchAllRentalGatePages(url, token) {
   var allItems = [];
-  var page = 0;
-  var pagesFetched = 0;
   var maxPages = 100;
   var pageSize = 100;
 
-  while (page < maxPages) {
-    var body = callRentalGateEndpoint(url, token, page, pageSize);
-    pagesFetched++;
-    var rows = [];
-    var totalPages = 1;
-    var isLast = false;
+  // Fetch page 0 first to discover totalPages
+  var firstBody = callRentalGateEndpoint(url, token, 0, pageSize);
+  var pagesFetched = 1;
+  var firstInfo = extractPagePayload_(firstBody, 0);
+  for (var f = 0; f < firstInfo.rows.length; f++) {
+    allItems.push(firstInfo.rows[f]);
+  }
 
-    if (Array.isArray(body)) {
-      rows = body;
-      isLast = true;
-    } else if (body && Array.isArray(body.content)) {
-      rows = body.content;
-      totalPages = toNumber(body.totalPages, 1);
-      isLast = body.last === true || (page + 1) >= totalPages;
-    } else if (body && body.data) {
-      if (Array.isArray(body.data)) {
-        rows = body.data;
-        totalPages = toNumber((body.meta && body.meta.last_page) || (body.pagination && body.pagination.last_page) || body.last_page, 1);
-        isLast = (page + 1) >= totalPages;
-      } else if (Array.isArray(body.data.content)) {
-        rows = body.data.content;
-        totalPages = toNumber(body.data.totalPages, 1);
-        isLast = body.data.last === true || (page + 1) >= totalPages;
-      } else if (Array.isArray(body.data.data)) {
-        rows = body.data.data;
-        totalPages = toNumber(body.data.last_page || (body.data.meta && body.data.meta.last_page) || (body.data.pagination && body.data.pagination.last_page), 1);
-        isLast = (page + 1) >= totalPages;
+  if (firstInfo.isLast || firstInfo.rows.length === 0 || firstInfo.totalPages <= 1) {
+    return { items: allItems, pagesFetched: pagesFetched };
+  }
+
+  var lastPageIdx = Math.min(firstInfo.totalPages - 1, maxPages - 1);
+  var batchSize = 10;
+  for (var startPage = 1; startPage <= lastPageIdx; startPage += batchSize) {
+    var endPage = Math.min(startPage + batchSize - 1, lastPageIdx);
+    var reqs = [];
+    for (var p = startPage; p <= endPage; p++) {
+      reqs.push(buildRentalGateRequest_(url, token, p, pageSize));
+    }
+    var responses = UrlFetchApp.fetchAll(reqs);
+    pagesFetched += responses.length;
+    var stopEarly = false;
+    for (var r = 0; r < responses.length; r++) {
+      var info = extractPagePayload_(parseRentalGateResponse_(responses[r]), startPage + r);
+      for (var k = 0; k < info.rows.length; k++) {
+        allItems.push(info.rows[k]);
       }
-    } else if (body && Array.isArray(body.items)) {
-      rows = body.items;
-      totalPages = toNumber((body.meta && body.meta.last_page) || (body.pagination && body.pagination.last_page) || body.last_page, 1);
-      isLast = (page + 1) >= totalPages;
+      if (info.rows.length === 0) stopEarly = true;
     }
-
-    for (var i = 0; i < rows.length; i++) {
-      allItems.push(rows[i]);
-    }
-
-    if (isLast || rows.length === 0) {
-      break;
-    }
-    page++;
+    if (stopEarly) break;
   }
 
   return { items: allItems, pagesFetched: pagesFetched };
+}
+
+function fetchBothEndpointsParallel_(resUrl, extUrl, token) {
+  var maxPages = 100;
+  var pageSize = 100;
+
+  // Round 1: fetch page 0 of both reservations and extensions in parallel
+  var firstBatch = UrlFetchApp.fetchAll([
+    buildRentalGateRequest_(extUrl, token, 0, pageSize),
+    buildRentalGateRequest_(resUrl, token, 0, pageSize)
+  ]);
+
+  var extInfo0 = extractPagePayload_(parseRentalGateResponse_(firstBatch[0]), 0);
+  var resInfo0 = extractPagePayload_(parseRentalGateResponse_(firstBatch[1]), 0);
+
+  var extItems = extInfo0.rows.slice();
+  var resItems = resInfo0.rows.slice();
+  var pagesFetched = 2;
+
+  var remainingReqs = [];
+  var remainingMeta = [];
+
+  if (!extInfo0.isLast && extInfo0.rows.length > 0 && extInfo0.totalPages > 1) {
+    var extLast = Math.min(extInfo0.totalPages - 1, maxPages - 1);
+    for (var ep = 1; ep <= extLast; ep++) {
+      remainingReqs.push(buildRentalGateRequest_(extUrl, token, ep, pageSize));
+      remainingMeta.push({ kind: 'ext', page: ep });
+    }
+  }
+  if (!resInfo0.isLast && resInfo0.rows.length > 0 && resInfo0.totalPages > 1) {
+    var resLast = Math.min(resInfo0.totalPages - 1, maxPages - 1);
+    for (var rp = 1; rp <= resLast; rp++) {
+      remainingReqs.push(buildRentalGateRequest_(resUrl, token, rp, pageSize));
+      remainingMeta.push({ kind: 'res', page: rp });
+    }
+  }
+
+  // Round 2+: fetch all remaining pages in parallel batches of 12
+  var batchSize = 12;
+  for (var start = 0; start < remainingReqs.length; start += batchSize) {
+    var reqChunk = remainingReqs.slice(start, start + batchSize);
+    var metaChunk = remainingMeta.slice(start, start + batchSize);
+    var responses = UrlFetchApp.fetchAll(reqChunk);
+    pagesFetched += responses.length;
+    for (var i = 0; i < responses.length; i++) {
+      var info = extractPagePayload_(parseRentalGateResponse_(responses[i]), metaChunk[i].page);
+      var targetArr = metaChunk[i].kind === 'ext' ? extItems : resItems;
+      for (var k = 0; k < info.rows.length; k++) {
+        targetArr.push(info.rows[k]);
+      }
+    }
+  }
+
+  return {
+    extensions: extItems,
+    reservations: resItems,
+    pagesFetched: pagesFetched
+  };
 }
 
 function saveApiToken(session, payload) {
@@ -214,9 +303,9 @@ function runRentalGateSyncInternal(actor) {
         excludedSet[normalizeStr(excludedStatuses[e]).toLowerCase()] = true;
       }
 
-      // 1. Fetch & filter extensions (accepted & paid only), deduplicated by extensionNumber
-      var extFetch = fetchAllRentalGatePages(RG_EXTENDS_API, token);
-      pagesFetched += extFetch.pagesFetched;
+      // 1. Fetch extensions & reservations in parallel batches via UrlFetchApp.fetchAll()
+      var parallelFetch = fetchBothEndpointsParallel_(RG_RESERVATIONS_API, RG_EXTENDS_API, token);
+      pagesFetched += parallelFetch.pagesFetched;
 
       var existingExtensions = readAllRecords(RG_SHEETS.EXTENSIONS, true);
       var existingExtByNum = {};
@@ -230,8 +319,8 @@ function runRentalGateSyncInternal(actor) {
       var extByResNumber = {};
       var extByResId = {};
 
-      for (var x = 0; x < extFetch.items.length; x++) {
-        var ext = extFetch.items[x];
+      for (var x = 0; x < parallelFetch.extensions.length; x++) {
+        var ext = parallelFetch.extensions[x];
         if (!isExtensionAcceptedAndPaid(ext)) continue;
 
         var extNum = normalizeStr(ext.extendId || ext.id || ext.extension_number || ext.code);
@@ -272,9 +361,8 @@ function runRentalGateSyncInternal(actor) {
         }
       }
 
-      // 2. Fetch reservations across pages, deduplicate by reservationNumber
-      var resFetch = fetchAllRentalGatePages(RG_RESERVATIONS_API, token);
-      pagesFetched += resFetch.pagesFetched;
+      // 2. Deduplicate and upsert reservations while preserving internal CRM state
+      var resItems = parallelFetch.reservations;
 
       var existingReservations = readAllRecords(RG_SHEETS.RESERVATIONS, true);
       var existingByNumber = {};
@@ -287,8 +375,8 @@ function runRentalGateSyncInternal(actor) {
       var resRecordsToUpsert = [];
       var nowStr = nowIso();
 
-      for (var i = 0; i < resFetch.items.length; i++) {
-        var item = resFetch.items[i];
+      for (var i = 0; i < resItems.length; i++) {
+        var item = resItems[i];
         var resApiId = normalizeStr(item.reservationId || item.id);
         var resNumber = normalizeStr(item.reservationNumber || item.reservation_number || item.code || item.reference || resApiId);
         if (!resNumber || resSeenMap[resNumber]) continue;
